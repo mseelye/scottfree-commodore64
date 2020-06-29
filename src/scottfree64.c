@@ -1,5 +1,5 @@
 /*
- *  ScottFree-64 - a reworking of ScottFree Revision 1.14b to run on a c64
+ *  ScottFree-64 - a Reworking of ScottFree Revision 1.14b for the Commodore 64
  *  (C) 2020 - Mark Seelye / mseelye@yahoo.com
  *  Version 0.9
  *
@@ -12,7 +12,7 @@
  *    make clean all
  *
  *  Run with:
- *    Your c64! (Or VICE)
+ *    Your Commodore 64! (Or VICE)
  *    Once you load the binary with 
         load "scottfree64",8,1
  *    You use cc65's argument passing like:

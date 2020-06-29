@@ -1,5 +1,11 @@
 #
 # ScottFree64 Makefile
+# Reworking of ScottFree Revision 1.14b for the Commodore 64
+#
+# Scott Free, A Scott Adams game driver in C.  
+# Release 1.14b (PC), (c) 1993,1994,1995 Swansea University Computer Society.  
+# Port to Commodore 64 as ScottFree64 Release 0.9, (c) 2020 Mark Seelye  
+# Distributed under the GNU software license  
 # (C) 2020 - Mark Seelye - mseelye@yahoo.com - 2020-06-20
 #
 

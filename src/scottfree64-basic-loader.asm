@@ -1,6 +1,7 @@
-; scottfree64 - basic bootstrap
-; Mark Seelye 2020-06-20
-; mseelye@yahoo.com
+; scottfree64 - Commodore 64 BASIC bootstrap
+;
+; (C) 2020 - Mark Seelye - mseelye@yahoo.com - 2020-06-20
+;
 ; This can be compiled with tmpx and the bhz-basic-tokens.asm
 ; Note: Replace {VERSION} with actual version "vMajor.Minor"
 ; Version 0.8
