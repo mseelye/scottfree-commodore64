@@ -2,7 +2,7 @@
 
 **Source**:  [https://github.com/mseelye/scottfree-commodore64](https://github.com/mseelye/scottfree-commodore64)  
 **This Rework by**:  Mark Seelye <mseelye@yahoo.com>  
-**Original**: "ScottFree release 1.14b" for DOS, by Alan Cox  
+**Original**: ["ScottFree release 1.14b" for DOS, by Alan Cox](http://ifarchive.org/if-archive/scott-adams/interpreters/scottfree/scott.zip)  
 **Copyright**:  
 Scott Free, A Scott Adams game driver in C.  
 Release 1.14b (PC), (c) 1993,1994,1995 Swansea University Computer Society.  
