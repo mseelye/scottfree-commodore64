@@ -1,6 +1,6 @@
 ## ScottFree64 - Reworking of ScottFree Revision 1.14b for the Commodore 64
 
-**Source**:  [https://bitbucket.org/mseelye/scottfree-c64](https://bitbucket.org/mseelye/scottfree-c64)  
+**Source**:  [https://github.com/mseelye/scottfree-commodore64](https://github.com/mseelye/scottfree-commodore64)  
 **This Rework by**:  Mark Seelye <mseelye@yahoo.com>  
 **Original**: "ScottFree release 1.14b" for DOS, by Alan Cox  
 **Copyright**:  
