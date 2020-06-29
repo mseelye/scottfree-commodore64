@@ -210,7 +210,6 @@ clean:
 	-rm -rf $(OBJDIR)
 	-rm -rf $(BINDIR)
 	-rm -f $(SRCDIR)/$(TARGET).s
-	-rm -rf $(DISTDIR)
 ifeq ("",$(TMPX))
 	@$(ECHO) "*** Note: $(TMPX_EXE) is not in PATH, not cleaning readme.prg, $(TMPX_CONSIDER)"
 else
