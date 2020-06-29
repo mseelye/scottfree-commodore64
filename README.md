@@ -3,7 +3,11 @@
 **Source**:  [https://bitbucket.org/mseelye/scottfree-c64](https://bitbucket.org/mseelye/scottfree-c64)  
 **This Rework by**:  Mark Seelye <mseelye@yahoo.com>  
 **Original**: "ScottFree release 1.14b" for DOS, by Alan Cox  
-**Copyright**: 2020-  
+**Copyright**:  
+Scott Free, A Scott Adams game driver in C.  
+Release 1.14b (PC), (c) 1993,1994,1995 Swansea University Computer Society.  
+Port to ScottFree64 Release 0.9, (c) 2020 Mark Seelye  
+Distributed under the GNU software license  
 **License**:   GNU GPL, version 2 - see [GPL-2.0.md](https://bitbucket.org/mseelye/scottfree-64/src/master/GPL-2.0.md)  
 
 ## Credits and Thanks
