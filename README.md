@@ -10,7 +10,7 @@
 * Original SCOTT.c/SCOTT.h source from "ScottFree release 1.14b" for DOS, by Alan Cox. From [ifarchive.org](http://ifarchive.org/indexes/if-archiveXscott-adamsXinterpretersXscottfree.html)  
 * Mike Taylor's fixes for the **definition notes** from his [ScottKit](https://github.com/MikeTaylor/scottkit/tree/master/docs/notes) project.
 * Jason Compton, who made a great Scott Adams-format game called "Ghost King" that inspired me to play around with Scott Adams Interpreters
-* On that note, Jason Compton is the author of "Ghost King", a great game you can find in the /games directory, or on the d64 or d81 files in the /dist directory.
+* "Ghost King" is available in the /games directory, and included with ScottFree 64 on the .d64 and .d81 disk images.
 * ALL the games in the /games directory belong to the authors who created them. I do not claim to have authored any of them, and I provide them here for the sake of convenience. I believe almost all of these came from [ifarchive.org](http://ifarchive.org/indexes/if-archiveXscott-adamsXinterpretersXscottfree.html)  
 
 ## Goals for this Project
