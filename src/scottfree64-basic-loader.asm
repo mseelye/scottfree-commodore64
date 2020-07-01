@@ -26,14 +26,14 @@
 ;2100
 
 #L "2100",_line_2200
-; print "load ";chr$(34);"scottfree";chr$(34);",";chr$(48+peek(186));",1"
+; print "load "chr$(34)"scottfree"chr$(34)","str$(peek(186))",1"
 .byte TOK_PRINT
-.text "{$22}{white}load {$22}"
-.text ";{$c7}(34);"
+.text "{$22}{white}load{$22}"
+.text "{$c7}(34)"
 .text "{$22}scottfree64{$22}"
-.text ";{$c7}(34);"
+.text "{$c7}(34)"
 .text "{$22},{$22}"
-.text ";{$c7}(48{$aa}{$c2}(186));"
+.text "{$c4}({$c2}(186))"
 .text "{$22},1{$22}"
 #EOL
 

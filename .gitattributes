@@ -1,0 +1,9 @@
+*.asm      text
+Makefile   text
+*.json     text
+*.c     text
+*.s     text
+*.p    text
+*.dat  text
+.d64      binary
+.d81      binary
