@@ -25,15 +25,16 @@
 #EOL
 ;2100
 
+
 #L "2100",_line_2200
-; print "load "chr$(34)"scottfree"chr$(34)","str$(peek(186))",1"
+; 2100 print"load"chr$(34)"*"chr$(34)","mid$(str$(peek(186)),2,2)",1"
 .byte TOK_PRINT
 .text "{$22}{white}load{$22}"
 .text "{$c7}(34)"
 .text "{$22}scottfree64{$22}"
 .text "{$c7}(34)"
 .text "{$22},{$22}"
-.text "{$c4}({$c2}(186))"
+.text "{$ca}({$c4}({$c2}(186)),2,2)"
 .text "{$22},1{$22}"
 #EOL
 
