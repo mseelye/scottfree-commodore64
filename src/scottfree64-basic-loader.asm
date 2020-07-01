@@ -4,7 +4,7 @@
 ;
 ; This can be compiled with tmpx and the bhz-basic-tokens.asm
 ; Note: Replace {VERSION} with actual version "vMajor.Minor"
-; Version 0.8
+; Version 0.9.1
 
 .include "tools/bhz-basic-tokens.asm"
 * = $0801
@@ -26,14 +26,20 @@
 ;2100
 
 #L "2100",_line_2200
-; print "load ";chr$(34);"scottfree";chr$(34);",8,1"
+; print "load ";chr$(34);"scottfree";chr$(34);",";chr$(48+peek(186));",1"
 .byte TOK_PRINT
-.text "{$20}{$22}{white}load {$22};{$c7}{$28}34{$29};{$22}scottfree64{$22};{$c7}{$28}34{$29};{$22},8,1{light blue}{$22}"
-#COLON
-.byte TOK_PRINT
+.text "{$22}{white}load {$22}"
+.text ";{$c7}(34);"
+.text "{$22}scottfree64{$22}"
+.text ";{$c7}(34);"
+.text "{$22},{$22}"
+.text ";{$c7}(48{$aa}{$c2}(186));"
+.text "{$22},1{$22}"
 #EOL
 
 #L "2200",_line_2300
+.byte TOK_PRINT
+#COLON
 #PRINT "  {yellow}then{light blue} to start your game:"
 #COLON
 .byte TOK_PRINT

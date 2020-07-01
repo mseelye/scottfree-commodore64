@@ -10,7 +10,7 @@
 #
 
 # Release Version
-VERSION = v0.9
+VERSION = v0.9.1
 
 # Determine what OS this is running on and adjust
 OSUNAME := $(shell uname)
