@@ -57,7 +57,8 @@ endif
 
 # Compiler flags
 CRUNCHERFLAGS =  sfx sys -m 16384 -q -n
-CFLAGS = --static-locals -Ors --codesize 500 -T -g -t $(SYS)
+#CFLAGS = --static-locals -Ors --codesize 500 -T -g -t $(SYS)
+CFLAGS = --static-locals -Ors --codesize 100 -t $(SYS)
 
 # Check for required executables
 REQ_EXECUTABLES = $(AS) $(CC) $(LD)
@@ -79,13 +80,15 @@ TARGET = scottfree64
 DIST = $(DISTDIR)/$(TARGET)
 
 # Note: 16 character limit on filenames in a d64/d81 disk image
-GAMES   := ghostking.dat sampler1.dat
+#GAMES   := ghostking.dat sampler1.dat
+GAMES   := ghostking.dat sampler1.dat ghostking.bdat bghostking.bdat
 SOURCES  := $(wildcard $(SRCDIR)/*.c)
 INCLUDES := $(wildcard $(SRCDIR)/*.h)
 OBJECTS  := $(SOURCES:$(SRCDIR)/%.c=$(OBJDIR)/%.o)
 ASMS  := $(SOURCES:$(SRCDIR)/%.c=$(OBJDIR)/%.o)
 
-all: directories $(BINDIR)/$(TARGET) readme disk disk81
+all: directories $(BINDIR)/$(TARGET) readme disk 
+# disk81
 
 %: %.c
 %: %.s
@@ -109,7 +112,7 @@ $(OBJECTS): $(OBJDIR)/%.o : $(SRCDIR)/%.c $(INCLUDES)
 	$(AS) $<.s -o $@
 #	$(AS) $(<:.c =.s) -o $@
 	@$(ECHO) "*** Compilation complete\n"
-	@rm $<.tmp $<.s
+#	@rm $<.tmp $<.s
 
 # Assemble BASIC stub/readme program
 .PHONY: readme
