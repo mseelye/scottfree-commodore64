@@ -81,14 +81,13 @@ DIST = $(DISTDIR)/$(TARGET)
 
 # Note: 16 character limit on filenames in a d64/d81 disk image
 #GAMES   := ghostking.dat sampler1.dat
-GAMES   := ghostking.dat sampler1.dat ghostking.bdat bghostking.bdat
+GAMES   := ghostking.dat sampler1.dat ghostking.bdat sampler1.bdat
 SOURCES  := $(wildcard $(SRCDIR)/*.c)
 INCLUDES := $(wildcard $(SRCDIR)/*.h)
 OBJECTS  := $(SOURCES:$(SRCDIR)/%.c=$(OBJDIR)/%.o)
 ASMS  := $(SOURCES:$(SRCDIR)/%.c=$(OBJDIR)/%.o)
 
-all: directories $(BINDIR)/$(TARGET) readme disk 
-# disk81
+all: directories $(BINDIR)/$(TARGET) readme disk disk81
 
 %: %.c
 %: %.s
@@ -196,6 +195,34 @@ else
 	@$(C1541) -attach $@ -write games/adv14b.dat adv14b.dat
 	@$(C1541) -attach $@ -write games/quest1.dat quest1.dat
 	@$(C1541) -attach $@ -write games/quest2.dat quest2.dat
+	@$(C1541) -attach $@ -write games/1_baton.bdat 1-baton.bdat
+	@$(C1541) -attach $@ -write games/2_timemachine.bdat 2-timemach.bdat
+	@$(C1541) -attach $@ -write games/3_arrow1.bdat 3-arrow1.bdat
+	@$(C1541) -attach $@ -write games/4_arrow2.bdat 4-arrow2.bdat
+	@$(C1541) -attach $@ -write games/5_pulsar7.bdat 5-pulsar7.bdat
+	@$(C1541) -attach $@ -write games/6_circus.bdat 6-circus.bdat
+	@$(C1541) -attach $@ -write games/7_feasibility.bdat 7-feas.bdat
+	@$(C1541) -attach $@ -write games/8_akyrz.bdat 8-akyrz.bdat
+	@$(C1541) -attach $@ -write games/9_perseus.bdat 9-perseus.bdat
+	@$(C1541) -attach $@ -write games/A_tenlittleindians.bdat a-10indians.bdat
+	@$(C1541) -attach $@ -write games/B_waxworks.bdat b-waxworks.bdat
+	@$(C1541) -attach $@ -write games/adv01.bdat adv01.bdat
+	@$(C1541) -attach $@ -write games/adv02.bdat adv02.bdat
+	@$(C1541) -attach $@ -write games/adv03.bdat adv03.bdat
+	@$(C1541) -attach $@ -write games/adv04.bdat adv04.bdat
+	@$(C1541) -attach $@ -write games/adv05.bdat adv05.bdat
+	@$(C1541) -attach $@ -write games/adv06.bdat adv06.bdat
+	@$(C1541) -attach $@ -write games/adv07.bdat adv07.bdat
+	@$(C1541) -attach $@ -write games/adv08.bdat adv08.bdat
+	@$(C1541) -attach $@ -write games/adv09.bdat adv09.bdat
+	@$(C1541) -attach $@ -write games/adv10.bdat adv10.bdat
+	@$(C1541) -attach $@ -write games/adv11.bdat adv11.bdat
+	@$(C1541) -attach $@ -write games/adv12.bdat adv12.bdat
+	@$(C1541) -attach $@ -write games/adv13.bdat adv13.bdat
+	@$(C1541) -attach $@ -write games/adv14a.bdat adv14a.bdat
+	@$(C1541) -attach $@ -write games/adv14b.bdat adv14b.bdat
+	@$(C1541) -attach $@ -write games/quest1.bdat quest1.bdat
+#	@$(C1541) -attach $@ -write games/quest2.bdat quest2.bdat
 # add your games
 #	@$(C1541) -attach $@ -write games/hold_the_snappy.dat snappy.dat
 #	@$(C1541) -attach $@ -write games/fish.dat fish.dat

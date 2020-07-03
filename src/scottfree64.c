@@ -266,7 +266,7 @@ char* ReadString (FILE* f, int ca2p)
         }
         if(c==0x60)
             c='"'; /* pdd */
-        if(c=='\n')
+        if(c=='\n') // \n\r seems backwards? shouldn't it be \r\n
         {
             block[ct++]=c;
             c='\r';    /* 1.12a PC - pdd */
@@ -447,15 +447,9 @@ void LoadDatabaseBinary (FILE* f, int loud)
     Room *rp;
     Item *ip;
 
-    // Header
-    fread(&ct, sizeof(short), 1, f);
-    if(ct != 0) {
-        fprintf(stderr, "Not BDat! (%d)", ct);
-        exit(1);
-    }
-
 /*
     cc65 turns this into a HUGE block of asm
+    fread(&GameHeader.Unknown, short, 1, f);
     fread(&GameHeader.NumItems, short, 1, f);
     fread(&GameHeader.NumActions, short, 1, f);
     fread(&GameHeader.NumWords, short, 1, f);
@@ -469,7 +463,7 @@ void LoadDatabaseBinary (FILE* f, int loud)
     fread(&GameHeader.TreasureRoom, short, 1, f);
 */
     // Can just load it all
-    fread(&GameHeader.NumItems, sizeof(short), 11, f);  
+    fread(&GameHeader.Unknown, sizeof(short), 12, f);  
         InitialPlayerRoom=GameHeader.PlayerRoom;
     LightRefill=GameHeader.LightTime;
 
@@ -1615,7 +1609,8 @@ int main(int argc, char *argv[])
 {
     FILE *f;
     int vb=0,no=0;
-    
+    short chk[3] = {0,0,0};
+
     while(argv[1])
     {
         if(*argv[1]!='-')
@@ -1682,12 +1677,15 @@ ScottFree, Scott Adams game driver in C\
 Release 1.14b(PC), (c) 1993,1994,1995\
 Swansea University Computer Society.\
 Distributed under the GNU software\nlicense\n\nMemFree(%zu)\n", _heapmemavail ());
-    vb = fgetc(f); // check first byte of file, if is byte 0 it is likely a binary file
+
+    // check start of file, if count is 0 it is likely a binary file
+    vb = fscanf(f,"%hd %hd %hd", &chk[0], &chk[1], &chk[2]);
     f = freopen(argv[1], "r", f); // reopen now, no fseek on c64 for cc65.. augh
-    if(vb!=0) {
-        LoadDatabase(f,(Options&DEBUGGING)?1:0);  // load DAT file
-    } else {
+    printf("%d : %d %d %d", vb, chk[0], chk[1], chk[2]);
+    if(vb==0) {
         LoadDatabaseBinary(f,(Options&DEBUGGING)?1:0); // load Binary DAT file
+    } else {
+        LoadDatabase(f,(Options&DEBUGGING)?1:0);  // load DAT file
     }
     fclose(f);
     if(argc==3)
