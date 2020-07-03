@@ -10,7 +10,7 @@
 #
 
 # Release Version
-VERSION = v0.9.1
+VERSION = v0.9.2
 
 # Determine what OS this is running on and adjust
 OSUNAME := $(shell uname)
@@ -111,7 +111,7 @@ $(OBJECTS): $(OBJDIR)/%.o : $(SRCDIR)/%.c $(INCLUDES)
 	$(AS) $<.s -o $@
 #	$(AS) $(<:.c =.s) -o $@
 	@$(ECHO) "*** Compilation complete\n"
-#	@rm $<.tmp $<.s
+	@rm $<.tmp $<.s
 
 # Assemble BASIC stub/readme program
 .PHONY: readme
