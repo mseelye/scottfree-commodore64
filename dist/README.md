@@ -7,10 +7,12 @@ A D64(1541) image with:
 ```
 0 "scottfree64     " bh 2a
 3     "readme"            prg
-60    "scottfree64"       prg
+63    "scottfree64"       prg
 56    "ghostking.dat"     prg
 55    "sampler1.dat"      prg
-490 blocks free.
+48    "ghostking.bdat"    prg
+33    "sampler1.bdat"     prg
+406 blocks free.
 ```
 
 ### scottfree64.d81  
@@ -18,9 +20,11 @@ A D81(1581) image with:
 ```
 0 "scottfree64     " bh 3d
 3     "readme"            prg
-60    "scottfree64"       prg
+63    "scottfree64"       prg
 56    "ghostking.dat"     prg
 55    "sampler1.dat"      prg
+48    "ghostking.bdat"    prg
+33    "sampler1.bdat"     prg
 53    "1-baton.dat"       prg
 55    "2-timemach.dat"    prg
 53    "3-arrow1.dat"      prg
@@ -49,5 +53,32 @@ A D81(1581) image with:
 71    "adv14b.dat"        prg
 75    "quest1.dat"        prg
 74    "quest2.dat"        prg
-1146 blocks free.
+31    "1-baton.bdat"      prg
+32    "2-timemach.bdat"   prg
+32    "3-arrow1.bdat"     prg
+36    "4-arrow2.bdat"     prg
+42    "5-pulsar7.bdat"    prg
+32    "6-circus.bdat"     prg
+31    "7-feas.bdat"       prg
+40    "8-akyrz.bdat"      prg
+37    "9-perseus.bdat"    prg
+34    "a-10indians.bdat"  prg
+38    "b-waxworks.bdat"   prg
+40    "adv01.bdat"        prg
+42    "adv02.bdat"        prg
+40    "adv03.bdat"        prg
+39    "adv04.bdat"        prg
+42    "adv05.bdat"        prg
+41    "adv06.bdat"        prg
+41    "adv07.bdat"        prg
+41    "adv08.bdat"        prg
+40    "adv09.bdat"        prg
+44    "adv10.bdat"        prg
+42    "adv11.bdat"        prg
+40    "adv12.bdat"        prg
+43    "adv13.bdat"        prg
+41    "adv14a.bdat"       prg
+40    "adv14b.bdat"       prg
+43    "quest1.bdat"       prg
+18 blocks free.
 ```

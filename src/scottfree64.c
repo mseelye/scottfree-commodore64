@@ -5,8 +5,7 @@
  *
  *  Requires: cc65 dev environment, build essentials (make)
  *  Optional: 
- *     tmpx for assembling the basic bootstrap.
- *     Vice tooling for c1541
+ *     Vice tooling for c1541 (making the disk images), petcat (basic stub)
  *
  *  build with:
  *    make clean all
@@ -1670,6 +1669,9 @@ int main(int argc, char *argv[])
     /* DisplayUp=1; not used in this version */
     OutReset();
     ClearScreen();
+    textcolor (14); // Light blue
+    bgcolor (0);    // Black
+    bordercolor (11); // Dark Grey
 
     /* cleaned up for 40 cols */
     printf("ScottFree64 {VERSION}, A c64 port of:\
@@ -1681,10 +1683,12 @@ Distributed under the GNU software\nlicense\n\nMemFree(%zu)\n", _heapmemavail ()
     // check start of file, if count is 0 it is likely a binary file
     vb = fscanf(f,"%hd %hd %hd", &chk[0], &chk[1], &chk[2]);
     f = freopen(argv[1], "r", f); // reopen now, no fseek on c64 for cc65.. augh
-    printf("%d : %d %d %d", vb, chk[0], chk[1], chk[2]);
+    //printf("%d : %d %d %d", vb, chk[0], chk[1], chk[2]);
     if(vb==0) {
+        printf("BDAT\n");
         LoadDatabaseBinary(f,(Options&DEBUGGING)?1:0); // load Binary DAT file
     } else {
+        printf("DAT\n");
         LoadDatabase(f,(Options&DEBUGGING)?1:0);  // load DAT file
     }
     fclose(f);

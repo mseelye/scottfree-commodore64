@@ -17,8 +17,8 @@ RUN:REM -D -R GHOSTKING.DAT
 ```
 
 ### Files
-## readme.prg/scottfree64-basic-loader.asm:  
-[readme.prg](readme.prg) is a BASIC program that gives users similar instructions to those above. The source for this program is in [scottfree64-basic-loader.asm](scottfree64-basic-loader.asm)
+## readme.prg/readme.c64basic:  
+[readme.prg](readme.prg) is a BASIC program that gives users similar instructions to those above. The source for this program is in [readme.c64basic](readme.c64basic) and can be built with petcat.
 
 ## scottfree.h  
 This is actually a copy of [SCOTT.H](http://ifarchive.org/if-archive/scott-adams/interpreters/scottfree/scott.zip), with the only difference being that the `Tail` struct is commented out.

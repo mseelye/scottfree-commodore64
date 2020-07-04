@@ -10,7 +10,7 @@
 #
 
 # Release Version
-VERSION = v0.9.2
+VERSION = v0.9.3
 
 # Determine what OS this is running on and adjust
 OSUNAME := $(shell uname)
@@ -40,10 +40,10 @@ C1541_EXE := c1541
 C1541 := "$(shell command -v $(C1541_EXE) 2> /dev/null)"
 C1541_CONSIDER = "please consider installing vice/$(C1541_EXE) from https://vice-emu.sourceforge.io/"
 
-# tmpx - used to assemble/create the readme.prg
-TMPX_EXE := tmpx
-TMPX = "$(shell command -v $(TMPX_EXE) 2> /dev/null)"
-TMPX_CONSIDER = "please consider installing $(TMPX_EXE) from http://turbo.style64.org"
+# petcat - used to assemble/create the readme.prg
+PETCAT_EXE := petcat
+PETCAT = "$(shell command -v $(PETCAT_EXE) 2> /dev/null)"
+PETCAT_CONSIDER = "please consider installing $(PETCAT_EXE) from https://vice-emu.sourceforge.io/"
 
 # exomizer - used to crunch the scottfree64 program file
 CRUNCHER_EXE = exomizer
@@ -113,17 +113,18 @@ $(OBJECTS): $(OBJDIR)/%.o : $(SRCDIR)/%.c $(INCLUDES)
 	@$(ECHO) "*** Compilation complete\n"
 	@rm $<.tmp $<.s
 
-# Assemble BASIC stub/readme program
+# petcat BASIC stub/readme program
+# petcat -ic -w2 -o readme2.prg -- readme.txt
 .PHONY: readme
 readme: $(SRCDIR)/readme.prg
-$(SRCDIR)/readme.prg: $(SRCDIR)/scottfree64-basic-loader.asm
-ifeq ("",$(TMPX))
-	@$(ECHO) "*** Note: $(TMPX_EXE) is not in PATH, cannot build readme, $(TMPX_CONSIDER)"
+$(SRCDIR)/readme.prg: $(SRCDIR)/readme.c64basic
+ifeq ("",$(PETCAT))
+	@$(ECHO) "*** Note: $(PETCAT_EXE) is not in PATH, cannot build readme, $(PETCAT_CONSIDER)"
 else
-	@$(ECHO) "*** Assembling $< with $(TMPX)"
+	@$(ECHO) "*** Tokenizing $< with $(PETCAT)"
 	@cat $< | sed -e "$(DIST_SED)" > $<.tmp
-	$(TMPX) $<.tmp -o $@
-	@$(ECHO) "*** Assembling complete   $<.tmp \n"
+	$(PETCAT) -ic -w2 -o $@ -- $<.tmp
+	@$(ECHO) "*** Tokenization complete\n"
 	@rm $<.tmp
 endif
 
@@ -240,8 +241,8 @@ clean:
 	-rm -rf $(OBJDIR)
 	-rm -rf $(BINDIR)
 	-rm -f $(SRCDIR)/$(TARGET).s
-ifeq ("",$(TMPX))
-	@$(ECHO) "*** Note: $(TMPX_EXE) is not in PATH, not cleaning readme.prg, $(TMPX_CONSIDER)"
+ifeq ("",$(PETCAT))
+	@$(ECHO) "*** Note: $(PETCAT_EXE) is not in PATH, not cleaning readme.prg, $(PETCAT_CONSIDER)"
 else
 	-rm -f $(SRCDIR)/readme.prg
 endif
