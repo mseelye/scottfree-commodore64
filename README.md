@@ -23,7 +23,7 @@ This wasn't an attempt to make this fast on the c64, or even run well. It was ju
 I also used this to explore cc65 again, which was a lot of fun.
 
 ## Some Notes
-* ~~**EVERYTHING LOADS VERY SLOWLY**, this is just a direct port, no real optimizations.~~  Update: if you use the game files with the suffix bdat, they will load MUCH faster. BDAT is "Binary DAT" see the games README for more information.
+* ~~**EVERYTHING LOADS VERY SLOWLY**, this is just a direct port, no real optimizations.~~  Update: if you use the game files with the suffix bdat, they will load MUCH faster. BDAT is "Binary DAT" see the [BDAT-README](games/BDAT-README.md) for more information.
 
 * I removed some code that is not used. I also removed the -t TRS formatting option which forces display to 64 columns. This build of ScottFree uses the standard 40-column display.
 * Thanks to some feedback from Jason, I added some code to **RESTART** the currently loaded game because reloading the whole thing is super painful. (This is separate from the **-r** option!)
@@ -37,8 +37,9 @@ You will need either a Commodore 64 emulator such as [Vice](https://vice-emu.sou
 
 * Download either the scottfree64.d64 and/or the scottfree64.d81 file from the dist directory.
 * Open Vice, set the drive type to the appropriate type (1541/1581), and attach to the d64 or d81 respectively.
-* Use `LOAD "*",8,1` or `LOAD "README",8,1` and the `RUN`. This will load a BASIC stub readme I've created to help you understand the loading process, and how to pass arguments to the program.
+* Use `LOAD "*",8,1` or `LOAD "README",8,1` and the `RUN`. This will load a BASIC stub readme I've created to help you understand the loading process, and how to pass arguments to the program.  
 * The readme will explain that you need to first `LOAD "SCOTTFREE64",8,1`, THEN you must pass it any options you want to use, the game's file name, and optionally a save game file. 
+* **Note:** ScottFree64 now supports a binary formatted DAT file called **BDAT**. These BDAT files are optimized to **load much more quickly** with ScottFree64 (starting with version 0.9.3). To use just use the bdat file instead of the dat file. (**ghostking.bdat** instead of ghostking.dat)  
 
 Example:  
 
@@ -115,10 +116,16 @@ Please refer to the original shares at [ifarchive.org](http://ifarchive.org/inde
 
 All of the commercially published Scott Adams-format games available in TRS-80 .dat format are expected to work on this build of ScottFree. Some modern games which play at the boundaries of the Adams specification may fail on this build due to memory limitations or other quirks.
 
-### DAT files / ifarchive.org
+### DAT files / ifarchive.org  
 **DAT** Is a format used by some of the Scott Adams game kits and players. 
 You can find a lot of them on sites like:  
 http://ifarchive.org/indexes/if-archiveXscott-adamsXgames.html
+
+### BDAT files  
+**BDAT** is a subset format of the DAT format that I made to optimize loading for ScottFree64.  
+I've included a BDAT file for all the DAT files I had in the games directory.  To use just use **GAMENAME.BDAT** instead of GAMENAME.DAT!  
+Please see the [BDAT-README](games/BDAT-README.md) for more information.  
+(I'll soon publish tools to convert DATs to BDAT and BDATs to DATs.)  
 
 ## Building from source
 I've used several tools to build the scottfree64 source, however the only tool required to build it is the cc65 toolset. **cc65** is a great cross development package for 65(C)02 systems. It has a macro assembler, a C compiler, a linker, and other tools. We are primarily interested in the compiler, assembler and the linker.  
