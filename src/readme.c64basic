@@ -1,4 +1,4 @@
- 2020 poke53280,11:poke53281,0:print "{clr}{home}{gry1}s{gry2}c{gry3}o{wht}ttf{gry3}r{gry2}e{gry1}e{wht}64{gry2} v0.9.2{wht} - {blu}mseelye 2020-06-20":print "{yel}usage{lblu}: copy your favorite .dat scottfree games onto this disk, {yel}first{lblu} load this:":print
+ 2020 poke53280,11:poke53281,0:print "{clr}{home}{rvon}{gry1}s{gry2}c{gry3}o{wht}ttf{gry3}r{gry2}e{gry1}e{rvof}{wht}64{gry2} {VERSION}{wht} - {blu}mseelye 2020-06-20":print "{yel}usage{lblu}: copy your favorite .dat scottfree games onto this disk, {yel}first{lblu} load this:":print
  2100 print"{wht}load"chr$(34)"scottfree64"chr$(34)","mid$(str$(peek(186)),2,2)",1"
  2200 print:print "  {yel}then{lblu} to start your game:":print:print "{wht}run:rem {gry2}-d{wht} {gry2}-r{wht} game.{gry2}[b]{wht}dat {gry2}savedgame{lblu}":print "  {gry2}-d, -r{lblu}, {gry2}savedgame{lblu} are {gry2}optional{lblu}!":print "  {gry2}-d{lblu} shows loading progress":print "  {gry2}-r{lblu} restores recent save on death":print "  {wht}note:{lblu} .bdat files load faster!"
  2300 print:print "  {yel}examples{lblu}:"
