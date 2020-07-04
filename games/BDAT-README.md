@@ -23,24 +23,36 @@ Change log:
 * **c** - Unsigned Char, for text (1 byte)
 * **l/h** - lo/hi-little endian
 
-#### BDAT Overall structure map
+#### Overall structure map
 ```
-[Header 24 bytes]
+[Header]        (12 shorts, 24 bytes, counts and other configuration)
 [Action][0]
 ...actions: 16 bytes each...
-[Action][n+1]
+[Action][n+1]   (Num Actions + 1)
 [WordPair][0]
 ...word pairs: (Each string length + 2) for each word pair...
-[WordPair][n+1]
-
+[WordPair][n+1] (Num Word Pairs + 1)
+[Rooms][0]
+...rooms: 6 shorts for directions and a variable length string for each room
+[Rooms][n+1]    (Num Rooms + 1)
+[Messages][0]
+...messages: string for each message. (length[0-255]+characters(*length)+0)
+[Messages][n+1] (Num Messages + 1)
+[Items][0]
+...items: 2 strings for each item, plus a starting room number (short)
+[Items][n+1]    (Num Items + 1)
+[Comments][0]
+...comments: string for each comments. (length[0-255]+characters(*length)+0)
+[Comments][n+1] (Num Actions + 1)
+[Game Info]     (3 shorts, 6 bytes, version, adventure number, "magic number")
 ```
 
-#### BDAT Header
+#### Header
 It's important to note that some values in the DAT header are **zero based**, the code adds 1 to some of these values.  
 
 ```
-00000000h: 00 00 27 00 93 00 3F 00 12 00 19 00 01 00 08 00 ; ..'.“.?.........
-00000010h: 04 00 FF FF 62 00 12 00                         ; ..ÿÿb...
+00000000h: 00 00 27 00 93 00 3F 00 12 00 19 00 01 00 08 00 ; ..'.â€œ.?.........
+00000010h: 04 00 FF FF 62 00 12 00                         ; ..Ã¿Ã¿b...
 
 Byte#(dec) Example(hex) Data Type   Byte Order  Description
 000-001    00 00        hu          l/h         DAT "Magic Number" - Usually 0x0000, although some Adventures have this set.
@@ -57,13 +69,13 @@ Byte#(dec) Example(hex) Data Type   Byte Order  Description
 022-023    12 00        hu          l/h         Treasure Room, in this case the treasure room is room #18.
 ```
 
-#### BDAT Actions
+#### Actions
 Actions are repeated "Number of Actions" + 1 times.  
 Each "Action" is represented by 16 bytes. It has a Vocab, 5 Action-Conditions, and 2 Action-Actions.  (I didn't name these, don't blame me for Action Actions.)  
 
 ```
-00000010h:                         84 03 12 34 56 78 9a bc ; ........„.......
-00000020h: de f0 21 43 65 87 98 ba                         ; ....¬&..
+00000010h:                         84 03 12 34 56 78 9a bc ; ........â€ž.......
+00000020h: de f0 21 43 65 87 98 ba                         ; ....Â¬&..
 (Note: these values are for illustration, not actual condition and action values.)  
 
 Offset(dec)Example(hex) Data Type   Byte Order  Description
@@ -80,7 +92,7 @@ Offset(dec)Example(hex) Data Type   Byte Order  Description
 
 Since our header said 147, this block would be repeated 148 times, taking up 2368 bytes in the file.  
 
-#### BDAT Word Pairs
+#### Word Pairs
 Word pairs are a list of paired verb and nouns, the pairing seems to be just for the file format, and doesn't seem to relate to the use between the verb and noun in the game.  
 Note: The first several sets of words seem to be in reserved spaces for directions, go, any, etc.  
 Each word is usually 1-4(Word Length from header?) characters, sometimes with an extra character for a "synonym" asterisk.  
@@ -106,7 +118,7 @@ Noun:
 
 Our header specified 63 word pairs so there are 63 + 1 pairs. The number of bytes will vary. The BDAT format does not store a value to skip over the pairs, the lengths must be traversed.  
 
-#### BDAT Rooms
+#### Rooms
 Rooms are 6 shorts (12 bytes), and a string (string length + 2). The string size varies so there is not a set size for each, like the word pairs they must be traversed.  
 The 6 short values represent the room numbers for the directions north, south, east, west, up and down respectively.  
 Not all rooms need to have exits as game code can move the player and items between rooms without them being connected.  
@@ -161,7 +173,7 @@ String may contain carriage return and linefeed characters and quotation marks.
 ```
 00000e70h:                         00 00|1A 44 72 69 6E 6B ;        ....Drink
 00000e80h: 20 64 65 65 70 20 65 72 65 20 79 6F 75 20 64 65 ;  deep ere you de
-00000e90h: 70 61 72 74 21 00|DA 57 65 6C 63 6F 6D 65 20 74 ; part!.ÚWelcome t
+00000e90h: 70 61 72 74 21 00|DA 57 65 6C 63 6F 6D 65 20 74 ; part!.ÃšWelcome t
 00000ea0h: 6F 20 47 48 4F 53 54 20 4B 49 4E 47 20 53 2E 41 ; o GHOST KING S.A
 
 Offset(dec)Example(hex) Data Type   Byte Order  Description
