@@ -44,7 +44,6 @@ Please refer to the original shares at [ifarchive.org](http://ifarchive.org/inde
 * **A_tenlittleindians.dat**          [Ten Little Indians](https://ifdb.tads.org/viewgame?id=z7ettlqezn4mcnng)
 * **B_waxworks.dat**                  [Waxworks](https://ifdb.tads.org/viewgame?id=lkt6sm3mgarb02bo)
 
-
 All of the commercially published Scott Adams-format games available in TRS-80 .dat format are expected to work on this build of ScottFree. Some modern games which play at the boundaries of the Adams specification may fail on this build due to memory limitations or other quirks.
 
 ### DAT files / ifarchive.org  
@@ -58,39 +57,4 @@ Check the source for how it loads. To use a bdat file you just use the bdat inst
 Example:  
 `RUN:REM -R -D GHOSTKING.BDAT`  
 
-#### BDAT format  
-The BDAt format is based on, and is only a condensed form of, the more standard DAT format. It very nearly has the absolute minimum to capture everything in the DAT file.  
-
-Exceptions are:..
-* **\r\n** - Carriage return (0x0D)and Linefeed (0x0A) characters are not optimized, and in some cases both wil be saved in the BDAT. These can likely be optimized to be just linefeeds.  
-* **Null terminators** - All strings are prefixed with a length, so there is no technical need for a null terminator on the strings. They are there as it makes loading them slightly less code.  
-* **Oversized datatypes** - I believe some of the datatypes could be single bytes, but are instead words.
-
-Things "Missing":  
-* There is no identifier before the header to identify the format, or the version of the format.  Since BDAT is only intended as an optimization for the C64, I don't think this is a problem.
-* There are no checksums, this could also be a good addition, but would be overkill for this format as it is in no way an attempt at making any kind of a new standard.
-
-#### Format Legend
-* **hu** - Unsigned Short
-* **l/h** - lo/hi-little endian
-
-#### BDAT Header
-It's important to note that some values in the DAT header are **zero based**, the code adds 1 to some of these values.  
-```
-00000000h: 00 00 27 00 93 00 3F 00 12 00 19 00 01 00 08 00 ; ..'.“.?.........
-00000010h: 04 00 FF FF 62 00 12 00                         ; ..ÿÿb...
-
-Byte#(dec) Example(hex) Data Type   Byte Order  Description
-000-001    00 00        hu          l/h         DAT "Magic Number" - Usually 0x0000, although some Adventures have this set.
-002-003    27 00        hu          l/h         Number of items, in this example 39 items.
-004-005    93 00        hu          l/h         Number of actions, in this example 147 actions.
-006-007    3F 00        hu          l/h         Number of word pairs, in this example 63 word pairs.
-008-009    12 00        hu          l/h         Number of rooms, in this example 18 rooms.
-010-011    19 00        hu          l/h         Max Carry, in this example 25 is the max carry.
-012-013    01 00        hu          l/h         Player Start Room, in this example room #1.
-014-015    08 00        hu          l/h         Number of treasures, in this example 8 treasures.
-016-017    04 00        hu          l/h         Word Length, in this example word length is 4.
-018-019    FF FF        hu          l/h         Light Time, in this example 65535, (or if it were signed -1), FFFF/-1 represents "unlimited".
-020-021    62 00        hu          l/h         Number of messages, in this example 98 messages.
-022-023    12 00        hu          l/h         Treasure Room, in this case the treasure room is room #18.
-```
+See [BDAT-README.md](BDAT-README.md) for details on the BDAT format.

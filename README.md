@@ -23,7 +23,8 @@ This wasn't an attempt to make this fast on the c64, or even run well. It was ju
 I also used this to explore cc65 again, which was a lot of fun.
 
 ## Some Notes
-* **EVERYTHING LOADS VERY SLOWLY**, this is just a direct port, no real optimizations.
+* ~~**EVERYTHING LOADS VERY SLOWLY**, this is just a direct port, no real optimizations.~~  Update: if you use the game files with the suffix bdat, they will load MUCH faster. BDAT is "Binary DAT" see the games README for more information.
+
 * I removed some code that is not used. I also removed the -t TRS formatting option which forces display to 64 columns. This build of ScottFree uses the standard 40-column display.
 * Thanks to some feedback from Jason, I added some code to **RESTART** the currently loaded game because reloading the whole thing is super painful. (This is separate from the **-r** option!)
 * If you use the **-r** option it will also load your most recent save file when you restart the game by dying, winning, or quitting.
