@@ -1,11 +1,10 @@
-## Games
+## Games  
 Again, all of the games in the [games](games) directory belong to the original authors. Provided here for the sake of convenience.
 
-#### Ghost King by Jason Compton
+#### Ghost King by Jason Compton  
 * **[Ghost King](https://ifdb.tads.org/viewgame?id=pv6hkqi34nzn1tdy)** by [Jason Compton](http://twitter.com/jpcwrites) "Your father is dead and you're sure your uncle is responsible. You tried to tell your mother so. Instead of believing you, she married him. Now you're going to uncover the truth and set things right..."
 
-#### Scott Adams Classic Adventures (SACA)
-
+#### Scott Adams Classic Adventures (SACA)  
 * **adv01.dat**      [Adventureland](https://ifdb.tads.org/viewgame?id=dy4ok8sdlut6ddj7)
 * **adv02.dat**      [Pirate Adventure (aka. Pirate's Cove)](https://ifdb.tads.org/viewgame?id=zya3mo3njj58hewi)
 * **adv03.dat**      [Secret Mission(aka "Mission Impossible")](https://ifdb.tads.org/viewgame?id=89kxtet3vb9lzj87)
@@ -18,12 +17,12 @@ Again, all of the games in the [games](games) directory belong to the original a
 * **adv10.dat**      [Savage Island, Part I](https://ifdb.tads.org/viewgame?id=wkaibkem4nxzo53y)
 * **adv11.dat**      [Savage Island, Part II](https://ifdb.tads.org/viewgame?id=aqy6km542aq20jh4)
 * **adv12.dat**      [The Golden Voyage](https://ifdb.tads.org/viewgame?id=4yo4je8dh53ug9qs)
-#### Scott Adams later Adventures (plus a sample game)
+#### Scott Adams later Adventures (plus a sample game)  
 * **adv13.dat**      [Sorcerer of Claymorgue Castle](https://ifdb.tads.org/viewgame?id=11tnb08k1jov4hyl)
 * **adv14a.dat**     [Return to Pirate's Isle](https://ifdb.tads.org/viewgame?id=rp9eibu02f9vp2sv)
 * **adv14b.dat**     [Buckaroo Banzai](https://ifdb.tads.org/viewgame?id=m85x5yr0zbopyuyb)
 * **sampler1.dat**   [Mini Adventure Sampler](https://ifdb.tads.org/viewgame?id=7nkd8ib4xbeqr7pm)
-#### Scott Adams later Adventures Marvel(TM) Adventures (Questprobe series)    
+#### Scott Adams later Adventures Marvel(TM) Adventures (Questprobe series)  
 * **quest1.dat**     [The Hulk](https://ifdb.tads.org/viewgame?id=4blbm63qfki4kf2p)
 * **quest2.dat**     [Spiderman](https://ifdb.tads.org/viewgame?id=ngi8ox3s9gfcand2)
 
@@ -45,11 +44,17 @@ Please refer to the original shares at [ifarchive.org](http://ifarchive.org/inde
 * **A_tenlittleindians.dat**          [Ten Little Indians](https://ifdb.tads.org/viewgame?id=z7ettlqezn4mcnng)
 * **B_waxworks.dat**                  [Waxworks](https://ifdb.tads.org/viewgame?id=lkt6sm3mgarb02bo)
 
-
 All of the commercially published Scott Adams-format games available in TRS-80 .dat format are expected to work on this build of ScottFree. Some modern games which play at the boundaries of the Adams specification may fail on this build due to memory limitations or other quirks.
 
-### DAT files / ifarchive.org
+### DAT files / ifarchive.org  
 **DAT** Is a format used by some of the Scott Adams game kits and players. 
 You can find a lot of them on sites like:  
 http://ifarchive.org/indexes/if-archiveXscott-adamsXgames.html
 
+### BDAT files  
+**BDAT** Is a simple binary format based on the DAT format from ScottFree. I cobbled this together in an effort to decrease load times in ScottFree64. I will post a tool to convert DAT to BDAT and BDAT to DAT.  
+Check the source for how it loads. To use a bdat file you just use the bdat instead of the dat file.  
+Example:  
+`RUN:REM -R -D GHOSTKING.BDAT`  
+
+See [BDAT-README.md](BDAT-README.md) for details on the BDAT format.

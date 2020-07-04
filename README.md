@@ -23,7 +23,8 @@ This wasn't an attempt to make this fast on the c64, or even run well. It was ju
 I also used this to explore cc65 again, which was a lot of fun.
 
 ## Some Notes
-* **EVERYTHING LOADS VERY SLOWLY**, this is just a direct port, no real optimizations.
+* ~~**EVERYTHING LOADS VERY SLOWLY**, this is just a direct port, no real optimizations.~~  Update: if you use the game files with the suffix bdat, they will load MUCH faster. BDAT is "Binary DAT" see the [BDAT-README](games/BDAT-README.md) for more information.
+
 * I removed some code that is not used. I also removed the -t TRS formatting option which forces display to 64 columns. This build of ScottFree uses the standard 40-column display.
 * Thanks to some feedback from Jason, I added some code to **RESTART** the currently loaded game because reloading the whole thing is super painful. (This is separate from the **-r** option!)
 * If you use the **-r** option it will also load your most recent save file when you restart the game by dying, winning, or quitting.
@@ -36,8 +37,9 @@ You will need either a Commodore 64 emulator such as [Vice](https://vice-emu.sou
 
 * Download either the scottfree64.d64 and/or the scottfree64.d81 file from the dist directory.
 * Open Vice, set the drive type to the appropriate type (1541/1581), and attach to the d64 or d81 respectively.
-* Use `LOAD "*",8,1` or `LOAD "README",8,1` and the `RUN`. This will load a BASIC stub readme I've created to help you understand the loading process, and how to pass arguments to the program.
+* Use `LOAD "*",8,1` or `LOAD "README",8,1` and the `RUN`. This will load a BASIC stub readme I've created to help you understand the loading process, and how to pass arguments to the program.  
 * The readme will explain that you need to first `LOAD "SCOTTFREE64",8,1`, THEN you must pass it any options you want to use, the game's file name, and optionally a save game file. 
+* **Note:** ScottFree64 now supports a binary formatted DAT file called **BDAT**. These BDAT files are optimized to **load much more quickly** with ScottFree64 (starting with version 0.9.3). To use just use the bdat file instead of the dat file. (**ghostking.bdat** instead of ghostking.dat)  
 
 Example:  
 
@@ -114,15 +116,21 @@ Please refer to the original shares at [ifarchive.org](http://ifarchive.org/inde
 
 All of the commercially published Scott Adams-format games available in TRS-80 .dat format are expected to work on this build of ScottFree. Some modern games which play at the boundaries of the Adams specification may fail on this build due to memory limitations or other quirks.
 
-### DAT files / ifarchive.org
+### DAT files / ifarchive.org  
 **DAT** Is a format used by some of the Scott Adams game kits and players. 
 You can find a lot of them on sites like:  
 http://ifarchive.org/indexes/if-archiveXscott-adamsXgames.html
 
+### BDAT files  
+**BDAT** is a subset format of the DAT format that I made to optimize loading for ScottFree64.  
+I've included a BDAT file for all the DAT files I had in the games directory.  To use just use **GAMENAME.BDAT** instead of GAMENAME.DAT!  
+Please see the [BDAT-README](games/BDAT-README.md) for more information.  
+(I'll soon publish tools to convert DATs to BDAT and BDATs to DATs.)  
+
 ## Building from source
 I've used several tools to build the scottfree64 source, however the only tool required to build it is the cc65 toolset. **cc65** is a great cross development package for 65(C)02 systems. It has a macro assembler, a C compiler, a linker, and other tools. We are primarily interested in the compiler, assembler and the linker.  
 
-The Makefile will complain if you don't have a required tool, and will warn you if you do not have an optional tool. With **cc65** installed, you should be able to update the Makefile with the location of your **cc65** installation by updating the **CC65_HOME** variable. You can then build the program with `make`.  With just **cc65* (Note: sed and cat are also used, but are not crucial.), and without c1541, exomizer and TMPx a build should look something like:
+The Makefile will complain if you don't have a required tool, and will warn you if you do not have an optional tool. With **cc65** installed, you should be able to update the Makefile with the location of your **cc65** installation by updating the **CC65_HOME** variable. You can then build the program with `make`.  With just **cc65* (Note: sed and cat are also used, but are not crucial.), and without c1541, petcat, and exomizer a build should look something like:
 
 	$ make
 	*** Compiling src/scottfree64.c
@@ -135,7 +143,7 @@ The Makefile will complain if you don't have a required tool, and will warn you 
 	*** Linking complete
 	*** Note: c1541 is not in PATH, cannot build disk. please consider installing vice/c1541X from https://vice-emu.sourceforge.io/
 	*** Note: c1541 is not in PATH, cannot build d81 disk. please consider installing vice/c1541X from https://vice-emu.sourceforge.io/
-You can see the Makefile complains about the optional tools, but the file it produces in the /bin directory is a Commodore 64 executable. If you have **exomizer** installed it will use it to create a crunched Commodore 64 executable. **c1541** will put the readme, the executable, and some games on a d64 disk image, and a d81 disk image. Finally, if you have **TMPx** installed it can also build the BASIC program used for the readme.
+You can see the Makefile complains about the optional tools, but the file it produces in the /bin directory is a Commodore 64 executable. If you have **exomizer** installed it will use it to create a crunched Commodore 64 executable. **c1541** will put the readme, the executable, and some games on a d64 disk image, and a d81 disk image. Finally, if you have **petcat** installed it can also build the BASIC program used for the readme.
 
 With all the tools installed a build looks like:  
 
@@ -148,10 +156,8 @@ With all the tools installed a build looks like:
 	/usr/local/cc65/bin/ld65  -o bin/scottfree64 -t c64 -m bin/scottfree64.map out/scottfree64.o c64.lib
 	"/usr/bin/exomizer" sfx sys -m 16384 -q -n -o bin/scottfree64.sfx bin/scottfree64
 	*** Linking complete
-	*** Assembling src/scottfree64-basic-loader.asm with /usr/bin/tmpx
-	"/usr/bin/tmpx" src/scottfree64-basic-loader.asm.tmp -o src/readme.prg
-	TMPx v1.1.0 [r1141; 2015-08-13 11:11:32]; (c) Style 2008-2015
-	        Assembled: $0801 - $0ab8 / Writing 698/$02ba bytes incl load address
+	*** Tokenizing src/readme.c64basic with petcat
+	"/usr/bin/petcat"  -ic -w2 -o src/readme.prg -- src/readme.c64basic.tmp
 	*** Assembling complete   src/scottfree64-basic-loader.asm.tmp
 	*** Building d64 disk...dist/scottfree64.d64
 	formatting in unit 8 ...
@@ -175,10 +181,11 @@ With all the tools installed a build looks like:
 **CC65** development tools are required to build this. CC65 binaries can be obtained for some platforms, but it can also be built from source.  
 https://cc65.github.io/
 
-### Vice / c1541
+### Vice / c1541 / petcat
 **c1541** is a tool that comes packaged with the VICE emulator suite. Binaries for c1541 are available for most platfroms but it too can be built from source.  
+**petcat** is also a tool that comes packaged with the VICE emulator suite. Binaries for petcat are available for most platfroms but it too can be built from source.  
 https://sourceforge.net/projects/vice-emu/  
-https://sourceforge.net/p/vice-emu/code/HEAD/tree/trunk/vice/src/Makefile.am (look for c1541-all target)  
+https://sourceforge.net/p/vice-emu/code/HEAD/tree/trunk/vice/src/Makefile.am (look for c1541-all and petcat-all target)  
 
 ### exomizer
 **Exomizer** is a tool used to compresses files, it can generate a self-extracting program that is compatible with  cc65 arguments passing. Exomizer has a windows binary available, but can also be built from source. It is available from: (Look for the text, "Download it here.")  
@@ -186,12 +193,8 @@ https://bitbucket.org/magli143/exomizer/wiki/Home
 
 ### TMPx
 **TMPx** (pronounced "T-M-P cross") is the multiplatform cross assembler version of Turbo Macro Pro, made by my friends and the c64 group "Style"!
-TMPx is used to assemble my current BASIC shim "scottfree64-basic-loader.asm"  
+TMPx was used previously to assemble the old BASIC shim "scottfree64-basic-loader.asm", however the shim grew and petcat was a better option. Check out TMPx anyway, it's a great cross assembler!
 http://turbo.style64.org/
-
-### bhz-basic-tokens.asm
-This is an asm file required by my BASIC shim. It provides some (TMPx) macros I use for generating basic listings. It is essentailly just some covenient macros I've been using in conjunction with my other projects. It uses **TMPx** syntax **not** cc65!
-(No active repo for this yet)
 
 ### make
 I use GNU Make 4.3 in my Windows MSys2 environment, GNU Make 4.1 in my Ubuntu environment, and GNU Make 3.8.1 on my MacBook Pro.

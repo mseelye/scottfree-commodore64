@@ -5,8 +5,7 @@
  *
  *  Requires: cc65 dev environment, build essentials (make)
  *  Optional: 
- *     tmpx for assembling the basic bootstrap.
- *     Vice tooling for c1541
+ *     Vice tooling for c1541 (making the disk images), petcat (basic stub)
  *
  *  build with:
  *    make clean all
@@ -34,6 +33,10 @@
  *      I did not try to optimize this code, it's fairly nested and complex.
  *      I may do my own "Scott Adams" parser and runner, but we'll see how 
  *      this does first though.
+ *      With cc65, while loops produce slightly smaller code than for loops
+ *      so I swapped out all the for loops, with while loops.
+ *      I made a single temp buffer called block, that is used by several, 
+ *      non-overlapping functions. Saves about 2k.
  *
  *   This program is distributed in the hope that it will be useful,
  *   but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -82,22 +85,23 @@ char **Verbs;
 char **Nouns;
 char **Messages;
 Action *Actions;
-int LightRefill;
+int LightRefill = 0;
 char NounText[16];
 int Counters[16];    /* Range unknown */
-int CurrentCounter;
-int SavedRoom;
+int CurrentCounter = 0;
+int SavedRoom = 0;
 int RoomSaved[16];    /* Range unknown */
 /* int DisplayUp; not used in the version */
 /* void *Top,*Bottom; not used in this version */
-int Redraw;        /* Update item window */
-int Restart;        /* mseelye - Flag to restart game, see NewGame() */
+int Redraw = 0;        /* Update item window */
+int Restart = 0;        /* mseelye - Flag to restart game, see NewGame() */
 char *SavedGame;    /* mseelye - Name of the saved game that was loaded, if any */
-int Options;        /* Option flags set */
-int Width;        /* Terminal width */
-int TopHeight;        /* Height of top window */
-int BottomHeight;    /* Height of bottom window */
-int InitialPlayerRoom; /* mseelye - added to help with restarting w/o reloading see: NewGame() */
+int Options = 0;        /* Option flags set */
+int Width = 0;        /* Terminal width */
+int TopHeight = 0;        /* Height of top window */
+// Not Used: int BottomHeight;    /* Height of bottom window */
+int InitialPlayerRoom = 0; /* mseelye - added to help with restarting w/o reloading see: NewGame() */
+char block[512]; /* global buffer, used by multiple functions for temp storage */
 
 #define RESTORE_SAVED_ON_RESTART 32 /* new option that autoloads saved game on restart */
 /* not used in this version
@@ -109,25 +113,12 @@ int InitialPlayerRoom; /* mseelye - added to help with restarting w/o reloading 
 
 long BitFlags=0;    /* Might be >32 flags - I haven't seen >32 yet */
 
-/* mseelye - Added this to allow program to exit woth 0 when done or 1 when error.*/
-void Close(int code)
-{
-    exit(code);
-}
-
-/* mseelye - modified this to output message twice in case ncurses issue
- *           put in a getch(); to have it pause before exiting.
- */
+/* mseelye - put in a getch(); to have it pause before exiting. */
 void Fatal(char *x)
 {
     printf("%s\n",x);
     getchar();
-    Close(1);
-}
-
-void Aborted()
-{
-    Fatal("User exit");
+    exit(1);
 }
 
 void ClearScreen(void)
@@ -138,11 +129,11 @@ void ClearScreen(void)
 
 void ClearTop(void)
 {
-    int ct;
+    int ct=0;
     
-    for(ct=0;ct<TopHeight;ct++)
+    while(ct < TopHeight)
     {
-        cclearxy (0, ct, Width);
+        cclearxy (0, ct++, Width);
     }
 }
 
@@ -230,9 +221,21 @@ int a2p(int c)
     return(c);
 }
 
+void a2pString(char* a, int s)
+{
+    int ct=0;
+    while(ct < s)
+    {
+        if(a[ct]==0 || ct >= 512)
+            break;
+        a[ct] = a2p(a[ct]);
+        ct++;
+    }
+}
+
 char* ReadString (FILE* f, int ca2p)
 {
-    char tmp[1024];
+    //char tmp[1024]; // use block
     char* t;
     int c,nc;
     int ct=0;
@@ -260,24 +263,24 @@ char* ReadString (FILE* f, int ca2p)
                 break;
             }
         }
-        if(c==0x60) 
+        if(c==0x60)
             c='"'; /* pdd */
-        if(c=='\n')
+        if(c=='\n') // \n\r seems backwards? shouldn't it be \r\n
         {
-            tmp[ct++]=c;
+            block[ct++]=c;
             c='\r';    /* 1.12a PC - pdd */
         }
         if(ca2p==1) {
             c=a2p(c); /* Convert to PETSCII */
         }
-        tmp[ct++]=c;
+        block[ct++]=c;
 
         __asm__ ("inc $d020");
     }
     while(1);
-    tmp[ct]=0;
+    block[ct]=0;
     t=MemAlloc(ct+1);
-    memcpy(t,tmp,ct+1);
+    memcpy(t,block,ct+1);
     return(t);
 }
 
@@ -420,6 +423,153 @@ void LoadDatabase (FILE* f, int loud)
         printf("%d.\nLoad Complete.\n\n",ct);
 }
 
+// Load Binary DAT String
+char *LoadString(FILE *f) 
+{
+    char *string;
+    int length = (int)fgetc(f);
+    string=(char *)MemAlloc((length+1) * sizeof(char));
+    if(length == 0) {
+        fgetc(f); // fseek(f, 1, SEEK_CUR);
+        string[0]='\0';
+        return(string);
+    }
+    fread(string, sizeof(char), length+1, f);
+    return(string);
+}
+
+// Load Binary DAT File
+void LoadDatabaseBinary (FILE* f, int loud)
+{
+    int ct=0;
+    Action *ap;
+    Room *rp;
+    Item *ip;
+
+/*
+    cc65 turns this into a HUGE block of asm
+    fread(&GameHeader.Unknown, short, 1, f);
+    fread(&GameHeader.NumItems, short, 1, f);
+    fread(&GameHeader.NumActions, short, 1, f);
+    fread(&GameHeader.NumWords, short, 1, f);
+    fread(&GameHeader.NumRooms, short, 1, f);
+    fread(&GameHeader.MaxCarry, short, 1, f);
+    fread(&GameHeader.PlayerRoom, short, 1, f);
+    fread(&GameHeader.Treasures, short, 1, f);
+    fread(&GameHeader.WordLength, short, 1, f);
+    fread(&GameHeader.LightTime, short, 1, f);
+    fread(&GameHeader.NumMessages, short, 1, f);
+    fread(&GameHeader.TreasureRoom, short, 1, f);
+*/
+    // Can just load it all
+    fread(&GameHeader.Unknown, sizeof(short), 12, f);  
+        InitialPlayerRoom=GameHeader.PlayerRoom;
+    LightRefill=GameHeader.LightTime;
+
+    // Allocate this all here, may help with fragmentation
+    Actions=(Action *)MemAlloc(sizeof(Action)*(GameHeader.NumActions+1));
+    Verbs=(char **)MemAlloc(sizeof(char *)*(GameHeader.NumWords+1));
+    Nouns=(char **)MemAlloc(sizeof(char *)*(GameHeader.NumWords+1));
+    Rooms=(Room *)MemAlloc(sizeof(Room)*(GameHeader.NumRooms+1));
+    Messages=(char **)MemAlloc(sizeof(char *)*(GameHeader.NumMessages+1));
+    Items=(Item *)MemAlloc(sizeof(Item)*(GameHeader.NumItems+1));
+
+    if(loud)
+        printf("\n%d actions", GameHeader.NumActions);
+
+    ct=0;
+    ap=Actions;
+    while(ct < GameHeader.NumActions+1)
+    {
+        fread(ap, sizeof(Action), 1, f);
+        ct++;
+        ap++;
+        if(loud)
+            printf(".");
+    }
+
+    if(loud)
+        printf("\n%d word pairs",GameHeader.NumWords);
+    ct=0;
+    while(ct < GameHeader.NumWords+1)
+    {
+        Verbs[ct] = LoadString(f);
+        Nouns[ct] = LoadString(f);
+        ct++;
+        if(loud)
+            printf(".");
+    }
+
+    if(loud)
+        printf("\n%d rooms",GameHeader.NumRooms);
+    ct=0;
+    rp=Rooms;
+    while(ct < GameHeader.NumRooms+1)
+    {
+        fread(rp->Exits, sizeof(short), 6, f);
+        rp->Text = LoadString(f);
+        // might be faster to do this outside this loop, but code is smaller with it being done here.
+        a2pString(rp->Text, strlen(rp->Text)); 
+        ct++;
+        rp++;
+        if(loud)
+            printf(".");
+    }
+
+    if(loud)
+        printf("\n%d messages",GameHeader.NumMessages);
+    ct=0;
+    while(ct < GameHeader.NumMessages+1)
+    {
+        Messages[ct]=LoadString(f);
+        a2pString(Messages[ct], strlen(Messages[ct]));
+        ct++;
+        if(loud)
+            printf(".");
+    }
+
+    if(loud)
+        printf("\n%d items",GameHeader.NumItems);
+    ct=0;
+    ip=Items;
+    while(ct < GameHeader.NumItems+1)
+    {
+        ip->Text=LoadString(f);
+        ip->AutoGet=LoadString(f);
+        // SF likes Autoget to be NULL not empty
+        if(strlen(ip->AutoGet)==0) {
+            free(ip->AutoGet);
+            ip->AutoGet = NULL;
+        }
+        fread(&ip->Location, sizeof(unsigned char), 1, f);
+        ip->InitialLoc=ip->Location;
+        ct++;
+        ip++;
+        if(loud)
+            printf(".");
+    }
+
+    /* Discard Comment Strings */
+    ct=0;
+    while(ct < GameHeader.NumActions+1) {
+        free(LoadString(f)); // load it and free it
+        ct++;
+        if(loud)
+            printf(".");
+    }
+
+    fread(&ct, sizeof(short), 1, f);
+    if(loud)
+        printf("v%d.%02d of Adv. ",
+        ct/100,ct%100);
+    fread(&ct, sizeof(short), 1, f);
+    if(loud)
+        printf("%d.\nDone\n\n",ct);
+
+    //fread(&ct, sizeof(short), 1, f); // skip magic number
+    //exit(1);
+}
+
 int OutputPos=0;
 
 void clreol() {
@@ -440,7 +590,7 @@ void OutReset()
 
 void OutBuf(char *buffer)
 {
-    char word[80];
+    char word[80]; // note: can't use global block buffer, would overlap from Output()
     int wp;
 
     while(*buffer)
@@ -502,37 +652,36 @@ void OutBuf(char *buffer)
 /* output petscii instead of raw ascii, s: 0-OutBuf, 1-printf */
 void OutputPetscii(char* a, int s)
 {
-    char buf[512];
-    int ct;
+    //char block[512]; // use global block buffer, this should probably be 256 for c64
+    int ct = 0;
 
-    strcpy(buf, a);
-    ct = 0;
+    strcpy(block, a);
     do
     {
         if(a[ct]==0 || ct >= 512)
             break;
-        buf[ct] = a2p(buf[ct]);
+        block[ct] = a2p(block[ct]);
         ct++;
     }
     while(1);
     if(s==0)
-        OutBuf(buf);
+        OutBuf(block);
     else
-        printf(buf);
+        printf(block);
 }
 
 void Output (char* a)
 {
-    char block[512];
+    // char block[512];  use global block buffer
     strcpy(block, a);
     OutBuf(block);
 }
 
 void OutputNumber(int a)
 {
-    char buf[16];
-    sprintf(buf,"%d",a);
-    OutBuf(buf);
+    //char buf[16]; // use global block buffer
+    sprintf(block,"%d",a);
+    OutBuf(block);
 }
 
 
@@ -693,7 +842,7 @@ void LineInput(char *buf)
 
 void GetInput(int* vb,int* no)
 {
-    char buf[256];
+    //char buf[256]; // use global block buffer
     char verb[10],noun[10];
     int vc=0,nc=0;
     int num=0;
@@ -705,11 +854,11 @@ void GetInput(int* vb,int* no)
             /* hack: refresh the top here after 
              * the c64 has moved everything around, ignores Redraw for now */
             Look(1);
-            LineInput(buf);
+            LineInput(block);
             OutReset();
-            num=sscanf(buf,"%9s %9s",verb,noun);
+            num=sscanf(block,"%9s %9s",verb,noun);
         }
-        while(num<=0||*buf=='\n'); /* was num==0, sscanf returning -1 on none found? */
+        while(num<=0||*block=='\n'); /* was num==0, sscanf returning -1 on none found? */
         if(num==1)
             *noun=0;
         if(*noun==0 && strlen(verb)==1)
@@ -752,8 +901,8 @@ void GetInput(int* vb,int* no)
 
 void SaveGame()
 {
-    char buf[256];
-    int ct;
+    char buf[32]; // can't use global block buffer, used to save last saved game file name
+    int ct=0;
     FILE *f;
     Output("Filename: ");
     LineInput(buf);
@@ -764,17 +913,21 @@ void SaveGame()
         Output("Unable to create save file.\n");
         return;
     }
-    for(ct=0;ct<16;ct++)
+    while(ct < 16)
     {
         fprintf(f,"%d %d\n",Counters[ct],RoomSaved[ct]);
+        ct++;
     }
     fprintf(f,"%ld %d %hd %d %d %hd\n",BitFlags, (BitFlags&(1L<<DARKBIT))?1:0,
         MyLoc,CurrentCounter,SavedRoom,GameHeader.LightTime);
-    for(ct=0;ct<=GameHeader.NumItems;ct++)
+    ct=0;
+    while(ct <= GameHeader.NumItems) {
         fprintf(f,"%hd\n",(short)Items[ct].Location);
+        ct++;
+    }
     fclose(f);
 
-    SavedGame = buf;
+    SavedGame = buf; // static variables maintain values, sloppy cheat to keep saved game name
 
     Output("Saved.\n");
 }
@@ -795,9 +948,11 @@ void LoadGame(char *name)
         Output("Unable to restore game.");
         return;
     }
-    for(ct=0;ct<16;ct++)
+    
+    while(ct < 16)
     {
         fscanf(f,"%d %d\n",&Counters[ct],&RoomSaved[ct]);
+        ct++;
     }
     fscanf(f,"%ld %d %hd %d %d %hd\n",
         &BitFlags,&DarkFlag,&MyLoc,&CurrentCounter,&SavedRoom,
@@ -805,10 +960,12 @@ void LoadGame(char *name)
     /* Backward compatibility */
     if(DarkFlag)
         BitFlags|=(1L<<15);
-    for(ct=0;ct<=GameHeader.NumItems;ct++)
+    ct=0;
+    while(ct <= GameHeader.NumItems)
     {
         fscanf(f,"%hd\n",&lo);
         Items[ct].Location=(unsigned char)lo;
+        ct++;
     }
     fclose(f);
 }
@@ -819,16 +976,14 @@ void LoadGame(char *name)
  */
 void FreshGame()
 {
-    int ct;
-
-    printf("\nCleaning up..");
+    int ct=0;
 
     /* clean up counters and room saved */
-    ct=0;
-    for(ct=0;ct<16;ct++)
+    while(ct < 16)
     {
         Counters[ct]=0;
         RoomSaved[ct]=0;
+        ct++;
     }
 
     BitFlags = 0;
@@ -837,7 +992,7 @@ void FreshGame()
     SavedRoom = 0;
     GameHeader.LightTime = LightRefill;
     ct=0;
-    while(ct<GameHeader.NumItems+1)
+    while(ct < GameHeader.NumItems+1)
     {
         Items[ct].Location=Items[ct].InitialLoc;
         ct++;
@@ -862,9 +1017,10 @@ void NewGame()
 int PerformLine(int ct)
 {
     int continuation=0;
-    int param[5],pptr=0;
-    int act[4];
+    int pptr=0;
     int cc=0;
+    int act[4];
+    int param[5];
     while(cc<5)
     {
         int cv,dv;
@@ -1042,12 +1198,12 @@ int PerformLine(int ct)
                 break;
             }
             case 63:
-                /* mseelye - Cleaned this up so it didn't use Fatal for c64 made it restart */
+                /* mseelye - just restart */
 doneit:         Output("The game is now over.\n");
                 getchar();
                 Restart=1;
                 break;
-                /* Close(0); cc65 is hard to restart, just loop! */
+                // exit(0) // mseelye - not needed, looping!
             case 64:
                 Look(1);
                 break;
@@ -1451,8 +1607,9 @@ int PerformActions(int vb,int no)
 int main(int argc, char *argv[])
 {
     FILE *f;
-    int vb,no;
-    
+    int vb=0,no=0;
+    short chk[3] = {0,0,0};
+
     while(argv[1])
     {
         if(*argv[1]!='-')
@@ -1507,19 +1664,33 @@ int main(int argc, char *argv[])
 
     Width = 40; 
     TopHeight = 10;
-    BottomHeight = 15;
+    // Not Used: BottomHeight = 15;
 
     /* DisplayUp=1; not used in this version */
     OutReset();
     ClearScreen();
+    textcolor (14); // Light blue
+    bgcolor (0);    // Black
+    bordercolor (11); // Dark Grey
 
     /* cleaned up for 40 cols */
     printf("ScottFree64 {VERSION}, A c64 port of:\
 ScottFree, Scott Adams game driver in C\
 Release 1.14b(PC), (c) 1993,1994,1995\
 Swansea University Computer Society.\
-Distributed under the GNU software\nlicense\n\n");
-    LoadDatabase(f,(Options&DEBUGGING)?1:0);
+Distributed under the GNU software\nlicense\n\nMemFree(%zu)\n", _heapmemavail ());
+
+    // check start of file, if count is 0 it is likely a binary file
+    vb = fscanf(f,"%hd %hd %hd", &chk[0], &chk[1], &chk[2]);
+    f = freopen(argv[1], "r", f); // reopen now, no fseek on c64 for cc65.. augh
+    //printf("%d : %d %d %d", vb, chk[0], chk[1], chk[2]);
+    if(vb==0) {
+        printf("BDAT\n");
+        LoadDatabaseBinary(f,(Options&DEBUGGING)?1:0); // load Binary DAT file
+    } else {
+        printf("DAT\n");
+        LoadDatabase(f,(Options&DEBUGGING)?1:0);  // load DAT file
+    }
     fclose(f);
     if(argc==3)
         LoadGame(argv[2]);
@@ -1557,7 +1728,7 @@ Distributed under the GNU software\nlicense\n\n");
             {
                 NewGame();
                 Restart=0;
-                break;
+                break; // breaks out of while(1)
             }
             else
             {
