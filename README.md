@@ -31,6 +31,7 @@ I also used this to explore cc65 again, which was a lot of fun.
 * I hacked up the top/bottom display code to get the room desc appearing more consistently. 
 This is not as effecient as the original Redraw logic, but without making many changes this was the easiest way to avoid display issues.
 * I also have made yet-another-ncurses port that will compile and run on Windows(mingw/MSys2), MacOS, and linux (Tested on Ubuntu). I'll link that here once I finish that up.
+* Based on feedback that black text on grey is "blah" I added the ability to use the F-keys to change the text, border, and background colors. **F1/F2** to inc/dec text color, **F3/F4** inc/dec border color, **F5/F6** inc/dec background color, F7 to restore to glorious monochrome "blah", **F8** to pick random colors for all.
 
 ## Enough, how do I play?
 You will need either a Commodore 64 emulator such as [Vice](https://vice-emu.sourceforge.io/), or some way to transfer the d64 or d81 files to a real 1541/1581 disk and play on your Commodore 64!  
@@ -65,6 +66,16 @@ The options available in this build are similar to the original ScottFree 1.14b:
 * **-d**  Debug. Shows detailed loading progress and data about the gamefile during the load.
 * **-p**  Use old or "prehistoric" lamp behavior. 
 * **-r**  The game will restart from with the MOST RECENTLY SAVED game when you die, win, or quit. When enabled, you must reset your c64 and reload everything to restart the game from the beginning.
+
+While in a game there are some other options available:  
+
+* **save game**  Most, if not all, games allow you to save your game at any point by typing **save game** and hitting enter. It will prompt you for a name, enter a name to use and press enter.  Note: if you used the **-r** option and you die, the system will automatically load the most recently saved game. To load a saved game when you start the program include the file name as the last argument when starting scottfree64. (see above)  
+* **quit**  Most, if not all, games allow you to quit the game by typing **quit** and hitting enter. If you used the **-r** option the game will then load the most recent save, otherwise it will restart the currently loaded game.  
+* **F1 / F2** Change text color  
+* **F3 / F4** Change border color  
+* **F5 / F6** Change background color  
+* **F7** Restore colors to starting colors (black text, grey background and border)  
+* **F8** Picks random colors for text, background and border.  
 
 ## Games
 Again, all of the games in the [games](games) directory belong to the original authors. Provided here for the sake of convenience.
@@ -158,7 +169,7 @@ With all the tools installed a build looks like:
 	*** Linking complete
 	*** Tokenizing src/readme.c64basic with petcat
 	"/usr/bin/petcat"  -ic -w2 -o src/readme.prg -- src/readme.c64basic.tmp
-	*** Assembling complete   src/scottfree64-basic-loader.asm.tmp
+	*** Tokenization complete
 	*** Building d64 disk...dist/scottfree64.d64
 	formatting in unit 8 ...
 	writing file `SRC/README.PRG' as `README' to unit 8
@@ -174,6 +185,7 @@ With all the tools installed a build looks like:
 	490 blocks free.
 	*** Building d64 disk complete
 	*** Building d81 disk...dist/scottfree64.d81
+	*** Disk Contents:
 	...(d81 listings omitted for brevity)
 
 # Tools
