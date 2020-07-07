@@ -72,6 +72,7 @@ Byte#(dec) Example(hex) Data Type   Byte Order  Description
 #### Actions
 Actions are repeated "Number of Actions" + 1 times.  
 Each "Action" is represented by 16 bytes. It has a Vocab, 5 Action-Conditions, and 2 Action-Actions.  (I didn't name these, don't blame me for Action Actions.)  
+Note: There are **4 actions** encoded in these 2 action values, however they are stored in the file and in memory as 2 values.  
 
 ```
 00000010h:                         84 03 12 34 56 78 9a bc ; ........„.......
