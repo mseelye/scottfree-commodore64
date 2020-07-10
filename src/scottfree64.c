@@ -69,9 +69,14 @@
 #include <conio.h>
 #include <time.h>
 #include <unistd.h>
-#include <peekpoke.h> // cc65
 
 #include "scottfree.h"
+
+// #include <peekpoke.h> // cc65's peek and poke
+//   for clarity, just inlining the macro.
+#ifndef PEEK
+    #define PEEK(addr)         (*(unsigned char*) (addr))
+#endif
 
 /* not used
 #define TRUE 1
@@ -222,6 +227,11 @@ int a2p(int c)
     return(c);
 }
 
+/*
+ * ASCII to PETSCII string at *a
+ * Note: This actually changes the data in memory at that location.
+ * Calling this a second time would convert a string back.
+ */
 void a2pString(char* a, int s)
 {
     int ct=0;
@@ -559,9 +569,9 @@ void LoadDatabaseBinary (FILE* f, int loud)
             printf(".");
     }
 
-    fread(&ct, sizeof(short), 1, f);
+    fread(&ct, sizeof(short), 1 , f);
     if(loud)
-        printf("v%d.%02d of Adv. ",
+        printf("\nv%d.%02d of Adv. ",
         ct/100,ct%100);
     fread(&ct, sizeof(short), 1, f);
     if(loud)
