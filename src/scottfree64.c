@@ -1,7 +1,8 @@
 /*
  *  ScottFree-64 - a Reworking of ScottFree Revision 1.14b for the Commodore 64
  *  (C) 2020 - Mark Seelye / mseelye@yahoo.com
- *  Version 0.9
+ *  Version 2.0.1
+ *  Heavier cbm optimizations.
  *
  *  Requires: cc65 dev environment, build essentials (make)
  *  Optional: 
@@ -21,22 +22,12 @@
  *         After it loads, change the name of the .dat file for the run and press enter.
  *
  *  Notes:
- *      EVERYTHING LOADS VERY SLOWLY - THIS IS JUST A PORT, NO OPTIMIZATION
- *      My goal here was to create a working version with as few changes to the 
- *      SCOTT.C source as possible.
- *      I removed some code that is not used, and removed the -t TRS formatting 
- *      option.
- *      I added some code to RESTART the game because reloading the while cc65 
- *         is super painful, use -r to enable!
- *      I hacked up the top/bottom display to get the room desc appearing more
- *         consistently.
- *      I did not try to optimize this code, it's fairly nested and complex.
- *      I may do my own "Scott Adams" parser and runner, but we'll see how 
- *      this does first though.
- *      With cc65, while loops produce slightly smaller code than for loops
- *      so I swapped out all the for loops, with while loops.
- *      I made a single temp buffer called block, that is used by several, 
- *      non-overlapping functions. Saves about 2k.
+ *      This is a reworking of the reworking (v1), it has heavier optimizations for memory for the c64.
+ *      This has all the changes that v1 had, but also removes as much stdio as possible as 
+ *      printf, scanf, etc. take a lot of memory.
+ *      In addition to output (printf/sprintf), and file i/o (fscanf) I also created 
+ *      an all asm input parser for verb and noun that takes much less space than having
+ *      sscanf linked in.
  *
  *   This program is distributed in the hope that it will be useful,
  *   but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -77,72 +68,59 @@
 #endif
 
 Header GameHeader;
-/* Tail GameTail; not used in this version */
 Item *Items;
 Room *Rooms;
 char **Verbs;
 char **Nouns;
 char **Messages;
 Action *Actions;
-int8_t LightRefill = 0;
+int LightRefill = 0;
 char NounText[16];
-int8_t Counters[16];    /* Range unknown */
-int8_t CurrentCounter = 0;
-int8_t SavedRoom = 0;
-int8_t RoomSaved[16];    /* Range unknown */
-/* int DisplayUp; not used in the version */
-/* void *Top,*Bottom; not used in this version */
-int8_t Redraw = 0;        /* Update item window */
-int8_t Restart = 0;        /* mseelye - Flag to restart game, see NewGame() */
-char *SavedGame;    /* mseelye - Name of the saved game that was loaded, if any */
-int8_t Options = 0;        /* Option flags set */
-int8_t Width = 0;        /* Terminal width */
-int8_t TopHeight = 0;        /* Height of top window */
-// Not Used: int BottomHeight;    /* Height of bottom window */
-int8_t InitialPlayerRoom = 0; /* mseelye - added to help with restarting w/o reloading see: NewGame() */
-char block[512]; /* global buffer, used by multiple functions for temp storage */
+int Counters[16];           // Range unknown
+int CurrentCounter = 0;
+int SavedRoom = 0;
+int RoomSaved[16];          // Range unknown
+int Redraw = 0;             // Update item window
+int Restart = 0;            // Flag to restart game, see NewGame()
+char *SavedGame;            // Name of the saved game that was loaded, if any
+int Options = 0;            // Option flags set
+int Width = 0;              // Terminal width
+int TopHeight = 0;          // Height of top window
+// Not Used: int BottomHeight;    // Height of bottom window
+int InitialPlayerRoom = 0;  // added to help with restarting w/o reloading see: NewGame()
+char block[512];            // global buffer, used by multiple functions for temp storage
 
-#define RESTORE_SAVED_ON_RESTART 32 /* new option that autoloads saved game on restart */
-/* not used in this version
-#define TOPCOL    COLOR_MAGENTA   Should be Brown
-#define BOTCOL    COLOR_BLUE
-*/
+#define RESTORE_SAVED_ON_RESTART 32 // new option that autoloads saved game on restart
 
 #define MyLoc    (GameHeader.PlayerRoom)
 
-long BitFlags=0;    /* Might be >32 flags - I haven't seen >32 yet */
+long BitFlags=0;    // Might be >32 flags, previous comment said, "I haven't seen >32 yet"
 
-/* mseelye - put in a getch(); to have it pause before exiting. */
-void Fatal(char *x)
-{
-    //printf("%s\n",x); // opt
+void Fatal(char *x) {
     print(x);
     print_char('\n');
-    // getchar(); // TODO
+    cgetc();
     exit(1);
 }
 
-void ClearScreen(void)
-{
+// TODO: asm opt
+void ClearScreen(void) {
     clrscr();
     gotoxy(0,0);
 }
 
-void ClearTop(void)
-{
+// TODO: asm opt
+void ClearTop(void) {
     uint8_t ct=0; // opt //int ct=0;
     
-    while(ct < TopHeight)
-    {
+    while(ct < TopHeight) {
         cclearxy (0, ct++, Width);
     }
 }
 
-void *MemAlloc(uint16_t size) // opt // void *MemAlloc(int size)
-{
+void *MemAlloc(uint16_t size) {
     void *t=(void *)malloc(size);
-    if(t==NULL) 
-    {
+    if(t==NULL) {
         // printf("malloc(%d) failed: ", size); // opt
         print("malloc failed, size: ");
         print_number(size);
@@ -151,19 +129,21 @@ void *MemAlloc(uint16_t size) // opt // void *MemAlloc(int size)
     return(t);
 }
 
-uint8_t RandomPercent(uint16_t n) // opt // int RandomPercent(int n)
-{
-    uint16_t rv=rand()<<6; // opt // unsigned int rv=rand()<<6; 
+// TODO: This needs to be fixed,
+//       it steps % changes 1-4=%4 5-8:%7  9-12:%10 etc
+uint8_t RandomPercent(uint16_t n) {
+    uint16_t rv=rand()<<6; // wtf is this?
     rv%=100;
-    if(rv<n)
+    if(rv<n) {
         return(1);
+    }
     return(0);
 }
 
-uint8_t CountCarried() // opt // int CountCarried()
-{
-    uint8_t ct=0; // opt // int ct=0;
-    uint8_t n=0;// opt // int n=0;
+// TODO: asm opt
+uint8_t CountCarried() {
+    uint8_t ct=0;
+    uint8_t n=0;
     while(ct<=GameHeader.NumItems)
     {
         if(Items[ct].Location==CARRIED)
@@ -173,38 +153,40 @@ uint8_t CountCarried() // opt // int CountCarried()
     return(n);
 }
 
-char *MapSynonym(char *word)
-{
-    uint8_t n=1; // opt // int n=1;
+// TODO: asm opt
+char *MapSynonym(char *word) {
+    uint8_t n=1;
     char *tp;
-    static char lastword[16];    /* Last non synonym */
-    while(n<=GameHeader.NumWords)
-    {
+    static char lastword[16];     // Last non synonym
+    while(n<=GameHeader.NumWords) {
         tp=Nouns[n];
-        if(*tp=='*')
+        if(*tp=='*') {
             tp++;
-        else
-            strcpy(lastword,tp); // TODO opt?
-        if(strncasecmp(word,tp,GameHeader.WordLength)==0)
+        } else {
+            strcpy(lastword,tp);  // TODO opt?
+        }
+        if(strncasecmp(word,tp,GameHeader.WordLength)==0) {
             return(lastword);
+        }
         n++;
     }
     return(NULL);
 }
 
-int8_t MatchUpItem(char *text, int loc) // opt // int MatchUpItem(char *text, int loc)
-{
+// TODO: asm opt
+int8_t MatchUpItem(char *text, int loc) {
     char *word=MapSynonym(text);
     uint8_t ct=0; // opt // int ct=0;
     
-    if(word==NULL)
+    if(word==NULL) {
         word=text;
+    }
     
-    while(ct<=GameHeader.NumItems)
-    {
+    while(ct<=GameHeader.NumItems) {
         if(Items[ct].AutoGet && Items[ct].Location==loc &&
-            strncasecmp(Items[ct].AutoGet,word,GameHeader.WordLength)==0)
+            strncasecmp(Items[ct].AutoGet,word,GameHeader.WordLength)==0) {
             return(ct);
+        }
         ct++;
     }
     return(-1);
@@ -212,7 +194,7 @@ int8_t MatchUpItem(char *text, int loc) // opt // int MatchUpItem(char *text, in
 
 // read file until next whitespace, convert to 32 bit integer
 uint32_t cbm_read_next(uint8_t filenum) {
-    char buf[32]; // block?
+    char buf[32]; // TODO: can this use common block?
     int8_t c = 0;
     uint8_t ct=0;
     int8_t t=0;
@@ -237,72 +219,59 @@ uint32_t cbm_read_next(uint8_t filenum) {
     return(atol(buf));
 }
 
-char* ReadString (uint8_t filenum, uint8_t ca2p) // opt // char* ReadString (FILE* f, int ca2p)
-{
-    //char tmp[1024]; // use block
+// Note: uses common global block buffer, instead of local tmp buffer
+char* ReadString (uint8_t filenum, uint8_t ca2p) {
     uint8_t ct=0;
     uint8_t c, nc;
-    uint8_t pbc = 0; // pushback buffer (static variables)
+    uint8_t pbc = 0; // pushback buffer, our "ungetch"
     int8_t t = 0;
     char* r; // result
 
-    do
-    {
+    do {
         if(pbc==0) {
             t = cbm_read(filenum, &c, 1);
-        }
-        else {
+        } else {
             c = pbc;
             pbc = 0;
         }
-    }
-    while(t > 0 && isspace((int)c));
-    if(c!='"')
-    {
-        //print("Expected quote found:");
-        //print_char(c);
-        //print_char('\n');
+    } while(t > 0 && isspace((int)c));
+    if(c!='"') {
         Fatal("Initial quote expected");
     }
-    do
-    {
-        if(pbc==0)
+    do {
+        if(pbc==0) {
             t = cbm_read(filenum, &c, 1);
-        else {
+        } else {
             c = pbc;
             pbc = 0;
         }
-        if(t<=0) // EOF or ERROR
+        if(t<=0) { // cbm EOF or ERROR
             Fatal("EOF in string");
-        if(c=='"')
-        {
-            if(pbc==0)
+        }
+        if(c=='"') {
+            if(pbc==0) {
                 t = cbm_read(filenum, &nc, 1);
-            else {
+            } else {
                 nc = pbc;
                 pbc = 0;
             }
-            if(nc!='"')
-            {
-                //ungetc(nc,f); // uh
-                pbc=nc;
+            if(nc!='"') {
+                pbc=nc; // "ungetc(nc,f)"
                 break;
             }
         }
-        if(c==0x60)
-            c='"'; /* pdd */
-        if(c=='\n')
-        {
+        if(c==0x60) {
+            c='"';
+        }
+        if(c=='\n') {
             block[ct++]=c;
-            c='\r';    /* 1.12a PC - pdd */
+            c='\r';
         }
         if(ca2p==1) {
-            c=a2p(c); /* Convert to PETSCII */
+            c=a2p(c);
         }
         block[ct++]=c;
-        //__asm__ ("inc $d020");
-    }
-    while(1);
+    } while(1);
     block[ct]=0;
     r=MemAlloc(ct+1);
     memcpy(r,block,ct+1);
@@ -319,8 +288,7 @@ void DebugMessage(uint8_t loud, char *msg, uint8_t num) {
 }
 
 // Load Standard DAT File
-void LoadDatabase (char *filename, uint8_t loud)
-{
+void LoadDatabase (char *filename, uint8_t loud) {
     uint8_t ct=0;
     uint8_t filenum=1;
     uint8_t device=8; // cbm // TODO: fix this.. wtf is wrong with $ba
@@ -359,8 +327,7 @@ void LoadDatabase (char *filename, uint8_t loud)
     ct=0;
     ap=Actions;
     DebugMessage(loud, "actions", GameHeader.NumActions+1);
-    while(ct < GameHeader.NumActions+1)
-    {
+    while(ct < GameHeader.NumActions+1) {
         ap->Vocab=(short)cbm_read_next(filenum);
         ap->Condition[0]=(short)cbm_read_next(filenum);
         ap->Condition[1]=(short)cbm_read_next(filenum);
@@ -369,29 +336,28 @@ void LoadDatabase (char *filename, uint8_t loud)
         ap->Condition[4]=(short)cbm_read_next(filenum);
         ap->Action[0]=(short)cbm_read_next(filenum);
         ap->Action[1]=(short)cbm_read_next(filenum);
-        if(loud)
+        if(loud) {
             print_char('.');
+        }
         ap++;
         ct++;
     }
 
     ct=0;
-    // printf("\nReading %d word pairs.",nw); // opt
     DebugMessage(loud, "pairs", GameHeader.NumWords+1);
-    while(ct<GameHeader.NumWords+1)
-    {
+    while(ct<GameHeader.NumWords+1) {
         Verbs[ct]=ReadString(filenum,0);
         Nouns[ct]=ReadString(filenum,0);
         ct++;
-        if(loud)
-            print_char('.'); // opt // printf(".");
+        if(loud) {
+            print_char('.');
+        }
     }
 
     ct=0;
     rp=Rooms;
     DebugMessage(loud, "rooms", GameHeader.NumRooms+1);
-    while(ct<GameHeader.NumRooms+1)
-    {
+    while(ct<GameHeader.NumRooms+1) {
         rp->Exits[0]=(short)cbm_read_next(filenum);
         rp->Exits[1]=(short)cbm_read_next(filenum);
         rp->Exits[2]=(short)cbm_read_next(filenum);
@@ -401,33 +367,33 @@ void LoadDatabase (char *filename, uint8_t loud)
         rp->Text=ReadString(filenum,1);
         ct++;
         rp++;
-        if(loud)
+        if(loud) {
             print_char('.');
+        }
     }
 
     ct=0;
     DebugMessage(loud, "messages", GameHeader.NumMessages+1);
-    while(ct<GameHeader.NumMessages+1)
-    {
+    while(ct<GameHeader.NumMessages+1) {
         Messages[ct]=ReadString(filenum,1);
         ct++;
-        if(loud)
+        if(loud) {
             print_char('.');
+        }
     }
 
     ct=0;
     DebugMessage(loud, "items", GameHeader.NumItems+1);
     ip=Items;
-    while(ct<GameHeader.NumItems+1)
-    {
+    while(ct<GameHeader.NumItems+1) {
         ip->Text=ReadString(filenum,0);
         ip->AutoGet=strchr(ip->Text,'/'); // TODO: opt?
-        /* Some games use // to mean no auto get/drop word! */
+        // Some games use // to mean no auto get/drop word!
         if(ip->AutoGet && strcmp(ip->AutoGet,"//") && strcmp(ip->AutoGet,"/*"))
         {
             char *t;
             *ip->AutoGet++=0;
-            t=strchr(ip->AutoGet,'/');
+            t=strchr(ip->AutoGet,'/'); // TODO: opt?
             if(t!=NULL)
                 *t=0;
         }
@@ -436,18 +402,19 @@ void LoadDatabase (char *filename, uint8_t loud)
         ip->InitialLoc=ip->Location;
         ip++;
         ct++;
-        if(loud)
+        if(loud) {
             print_char('.');
+        }
     }
     
     ct=0;
-    /* Discard Comment Strings */
     while(ct<GameHeader.NumActions+1)
     {
-        free(ReadString(filenum,0));
+        free(ReadString(filenum,0)); // Discard Comment Strings
         ct++;
-        if(loud)
+        if(loud) {
             print_char('.');
+        }
     }
 
     if(loud) {
@@ -469,11 +436,10 @@ void LoadDatabase (char *filename, uint8_t loud)
 }
 
 // Load Binary DAT String
-uint8_t *LoadString(filenum)
-{
+uint8_t *LoadString(filenum) {
     uint8_t *string;
     uint8_t length = 0;
-    cbm_read(filenum, &length, 1); // note: no check
+    cbm_read(filenum, &length, 1);
     string=(uint8_t *)MemAlloc((length+1) * sizeof(uint8_t));
     if(length == 0) {
         cbm_read(filenum, &length, 1);
@@ -485,8 +451,7 @@ uint8_t *LoadString(filenum)
 }
 
 // Load Binary DAT File
-void LoadDatabaseBinary (char *fn, uint8_t loud)
-{
+void LoadDatabaseBinary (char *filename, uint8_t loud) {
     uint8_t ct=0;
     uint8_t filenum=1;
     uint8_t device=8; // TODO: get current device!
@@ -494,11 +459,11 @@ void LoadDatabaseBinary (char *fn, uint8_t loud)
     Room *rp;
     Item *ip;
 
-    if (cbm_open(filenum, device, 2, fn)) {
+    if (cbm_open(filenum, device, 2, filename)) {
         Fatal("File error!");
     }
 
-    cbm_read(filenum, &GameHeader.Unknown, sizeof(GameHeader)); // note: no check
+    cbm_read(filenum, &GameHeader.Unknown, sizeof(GameHeader));
     InitialPlayerRoom=GameHeader.PlayerRoom;
     LightRefill=GameHeader.LightTime;
 
@@ -510,59 +475,58 @@ void LoadDatabaseBinary (char *fn, uint8_t loud)
     Messages=(char **)MemAlloc(sizeof(char *)*(GameHeader.NumMessages+1));
     Items=(Item *)MemAlloc(sizeof(Item)*(GameHeader.NumItems+1));
 
-    DebugMessage(loud, "actions", GameHeader.NumActions);
     ct=0;
     ap=Actions;
-    while(ct < GameHeader.NumActions+1)
-    {
+    DebugMessage(loud, "actions", GameHeader.NumActions+1);
+    while(ct < GameHeader.NumActions+1) {
         cbm_read(filenum, ap, sizeof(Action));
         ct++;
         ap++;
-        if(loud)
+        if(loud) {
             print_char('.');
+        }
     }
 
-    DebugMessage(loud, "pairs", GameHeader.NumWords);
     ct=0;
-    while(ct < GameHeader.NumWords+1)
-    {
+    DebugMessage(loud, "pairs", GameHeader.NumWords+1);
+    while(ct < GameHeader.NumWords+1) {
         Verbs[ct] = LoadString(filenum);
         Nouns[ct] = LoadString(filenum);
         ct++;
-        if(loud)
+        if(loud) {
             print_char('.');
+        }
     }
 
-    DebugMessage(loud, "rooms", GameHeader.NumRooms);
     ct=0;
     rp=Rooms;
-    while(ct < GameHeader.NumRooms+1)
-    {
+    DebugMessage(loud, "rooms", GameHeader.NumRooms+1);
+    while(ct < GameHeader.NumRooms+1) {
         cbm_read(filenum, rp->Exits, 6 * sizeof(uint16_t));
         rp->Text = LoadString(filenum);
         a2p_string(rp->Text, 0);
         ct++;
         rp++;
-        if(loud)
+        if(loud) {
             print_char('.');
+        }
     }
 
-    DebugMessage(loud, "messages", GameHeader.NumMessages);
     ct=0;
-    while(ct < GameHeader.NumMessages+1)
-    {
+    DebugMessage(loud, "messages", GameHeader.NumMessages+1);
+    while(ct < GameHeader.NumMessages+1) {
         Messages[ct]=LoadString(filenum);
         a2p_string(Messages[ct], 0);
         ct++;
-        if(loud)
+        if(loud) {
             print_char('.');
+        }
     }
 
-    DebugMessage(loud, "items", GameHeader.NumItems);
     ct=0;
     ip=Items;
-    while(ct < GameHeader.NumItems+1)
-    {
+    DebugMessage(loud, "items", GameHeader.NumItems+1);
+    while(ct < GameHeader.NumItems+1) {
         ip->Text=LoadString(filenum);
         ip->AutoGet=LoadString(filenum);
         // SF likes Autoget to be NULL not empty
@@ -574,8 +538,9 @@ void LoadDatabaseBinary (char *fn, uint8_t loud)
         ip->InitialLoc=ip->Location;
         ct++;
         ip++;
-        if(loud)
+        if(loud) {
             print_char('.');
+        }
     }
 
     /* Discard Comment Strings */
@@ -583,8 +548,9 @@ void LoadDatabaseBinary (char *fn, uint8_t loud)
     while(ct < GameHeader.NumActions+1) {
         free(LoadString(filenum)); // load it and free it
         ct++;
-        if(loud)
+        if(loud) {
             print_char('.');
+        }
     }
 
     if(loud) {
@@ -606,6 +572,7 @@ void LoadDatabaseBinary (char *fn, uint8_t loud)
 
 uint8_t OutputPos=0; // opt // int OutputPos=0;
 
+// TODO: asm opt
 void clreol() {
     uint8_t x, y; // opt // int x, y;
     x=wherex();
@@ -617,155 +584,130 @@ void clreol() {
 void OutReset()
 {
     OutputPos=0;
-    gotoxy(0,wherey()); /* not 1 */
+    gotoxy(0,wherey()); // not 1
     clreol();
 }
 
-void OutBuf(char *buffer)
-{
-    char word[80]; // note: can't use global block buffer, would overlap from Output()
-    uint8_t wp; // opt // int wp;
+// note: can't use global block buffer, would overlap from Output()
+void OutBuf(char *buffer) {
+    char word[80]; 
+    uint8_t wp;
 
-    while(*buffer)
-    {
-        if(OutputPos==0)
-        {
-            while(*buffer && isspace(*buffer)) // TODO: opt?
-            {
-                if(*buffer=='\n')
-                {
-                    /* For last line entry mode: gotoxy(1,BottomHeight); */
-                    print("\n\r"); // opt // printf("\n\r");
-                    /* For last line entry mode: (1, wherey(), Width); */
+    while(*buffer) {
+        if(OutputPos==0) {
+            while(*buffer && isspace(*buffer)) { // TODO: opt for isspace?
+                if(*buffer=='\n') {
+                    print("\n\r");
                     OutputPos=0;
                 }
                 buffer++;
             }
         }
-        if(*buffer==0)
+        if(*buffer==0) {
             return;
+        }
         wp=0;
-        while(*buffer && !isspace(*buffer)) // TODO: opt?
-        {
+        while(*buffer && !isspace(*buffer)) { // TODO: opt for isspace?
             word[wp++]=*buffer++;
         }
         word[wp]=0;
-/*        fprintf(stderr,"Word '%s' at %d\n",word,OutputPos);*/
-        if(OutputPos+strlen(word)>(Width-2))
-        {
-            /* For last line entry mode: gotoxy(1, BottomHeight); */
-            print("\n\r"); // opt // printf("\n\r");
-            /* For last line entry mode: cclearxy (1, wherey(), Width); */
+        if(OutputPos+strlen(word)>(Width-2)) {
+            print("\n\r");
             OutputPos=0;
-        }
-        else
+        } else {
             gotoxy(OutputPos+0, wherey());
-        print(word); // opt // printf("%s", word);
-        OutputPos+=strlen(word);
-        if(*buffer==0)
-            return;
-
-        if(*buffer=='\n' || *buffer=='\r')
-        {
-            /* For last line entry mode: gotoxy(1,BottomHeight);*/
-            print("\n\r"); // opt // printf("\n\r");
-            /* For last line entry mode: cclearxy (1, wherey(), Width); */
-            OutputPos=0;
         }
-        else
-        {
+        print(word);
+        OutputPos+=strlen(word);
+        if(*buffer==0) {
+            return;
+        }
+        if(*buffer=='\n' || *buffer=='\r') {
+            print("\n\r");
+            OutputPos=0;
+        } else {
             OutputPos++;
-            if(OutputPos<(Width-1))
-                print(" "); // opt //printf(" ");
+            if(OutputPos<(Width-1)) {
+                print(" ");
+            }
         }
         buffer++;
     }
 }
 
-/* output petscii instead of raw ascii, s: 0-OutBuf, 1-print */
-void OutputPetscii(char* a, uint8_t s)
-{
-    //char block[512]; // use global block buffer, this should probably be 256 for c64
+// output petscii instead of raw ascii, mode: 0-OutBuf, 1-print
+// Note: Uses global block buffer
+void OutputPetscii(char* text, uint8_t mode) {
     uint8_t ct = 0;
 
-    strcpy(block, a);
-    do
-    {
-        if(a[ct]==0)
+    strcpy(block, text); // TODO: asm opt?
+    do {
+        if(text[ct]==0) {
             break;
+        }
         block[ct] = a2p(block[ct]);
         ct++;
-    }
-    while(1);
-    if(s==0)
+    } while(1);
+    if(mode==0) {
         OutBuf(block);
-    else
+    } else {
         print(block);
+    }
 }
 
-void Output (char* a)
-{
-    // char block[512];  use global block buffer
-    strcpy(block, a);
+// Note: Uses global block buffer
+void Output (char* text) {
+    strcpy(block, text);
     OutBuf(block);
 }
 
-void OutputNumber(int a)
-{
-    //char buf[16]; // use global block buffer
-    // opt
-    //sprintf(block,"%d",a);
-    //OutBuf(block);
-    OutBuf((char *)bufnum32(a));
+void OutputNumber(int num) {
+    OutBuf((char *)bufnum32(num)); // Note: doesn't print signed
 }
 
-void Look(uint8_t cs) // opt // void Look(int cs)
-{
-    static char *ExitNames[6]=
-    {
+void Look(uint8_t cs) {
+    static char *ExitNames[6]= {
         "North","South","East","West","Up","Down"
     };
     Room *r;
-    uint8_t ct,f; // opt // int ct,f;
-    uint8_t pos; // opt // int pos;
-    uint8_t xp,yp; // opt // int xp,yp;
+    uint8_t ct,f;
+    uint8_t pos;
+    uint8_t xp,yp;
 
-    /* if clear screen is set, save x/y cursor for later, then clear */
+    // if clear screen is set, save x/y cursor for later, then clear
     if(cs == 1) {
         xp = wherex();
         yp = wherey();
-        if(yp < TopHeight +1)
+        if(yp < TopHeight +1) {
             yp = TopHeight +1;
+        }
         ClearTop();
-        gotoxy(0,1); /* output 1 down as the c64 will move it up one */
+        gotoxy(0,1); // output 1 down as the c64 will move it up one
     }
 
     if((BitFlags&(1L<<DARKBIT)) && Items[LIGHT_SOURCE].Location!= CARRIED
-            && Items[LIGHT_SOURCE].Location!= MyLoc)
-    {
-        if(Options&YOUARE)
-            print("You can't see. It is too dark!\n\r"); // opt // printf("You can't see. It is too dark!\n\r");
-        else
-            print("I can't see. It is too dark!\n\r"); // opt // printf("I can't see. It is too dark!\n\r");
-        gotoxy(xp,yp);  /* put the cursor back */
+            && Items[LIGHT_SOURCE].Location!= MyLoc) {
+        if(Options&YOUARE) {
+            print("You can't see. It is too dark!\n\r");
+        } else {
+            print("I can't see. It is too dark!\n\r");
+        }
+        gotoxy(xp,yp);
         return;
     }
     r=&Rooms[MyLoc];
     if(*r->Text=='*')
     {
-        // printf("%s\n\r",r->Text+1); // opt
         print(r->Text+1);
         print("\n\r");
     }
     else
     {
         if(Options&YOUARE) {
-            // opt // printf("You are %s\n\r",r->Text);
             print("You are ");
             print(r->Text);
             print("\n\r"); 
         } else {
-            // opt // printf("I'm in a %s\n\r",r->Text);
             print("I'm in a ");
             print(r->Text);
             print("\n\r"); 
@@ -773,85 +715,79 @@ void Look(uint8_t cs) // opt // void Look(int cs)
     }
     ct=0;
     f=0;
-    print("\n\rObvious exits: "); // opt // printf("\n\rObvious exits: ");
-    while(ct<6)
-    {
-        if(r->Exits[ct]!=0)
-        {
-            if(f==0)
+    print("\n\rObvious exits: ");
+    while(ct<6) {
+        if(r->Exits[ct]!=0) {
+            if(f==0) {
                 f=1;
-            else
-                print(", "); // opt // printf(", ");
-            print(ExitNames[ct]); // opt // printf("%s",ExitNames[ct]);
+            } else {
+                print(", ");
+            }
+            print(ExitNames[ct]);
         }
         ct++;
     }
-    if(f==0)
-        print("none"); // opt // printf("none");
-    print(".\n\r"); // opt // printf(".\n\r");
+    if(f==0) {
+        print("none");
+    }
+    print(".\n\r");
     ct=0;
     f=0;
     pos=0;
-    while(ct<=GameHeader.NumItems)
-    {
-        if(Items[ct].Location==MyLoc)
-        {
-            if(f==0)
-            {
-                if(Options&YOUARE)
-                    print("\n\rYou can also see: ");// opt // printf("\n\rYou can also see: ");
-                else
-                    print("\n\rI can also see: "); // opt // printf("\n\rI can also see: ");
+    while(ct<=GameHeader.NumItems) {
+        if(Items[ct].Location==MyLoc) {
+            if(f==0) {
+                if(Options&YOUARE) {
+                    print("\n\rYou can also see: ");
+                } else {
+                    print("\n\rI can also see: ");
+                }
                 pos=16;
                 f++;
-            }
-            else
-            {
-                print(" - "); // opt // printf(" - ");
+            } else {
+                print(" - ");
                 pos+=3;
             }
-            if(pos+strlen(Items[ct].Text)>(Width-5)) /* was 10 */
-            {
+            if(pos+strlen(Items[ct].Text)>(Width-5)) { // was 10
                 pos=0;
-                print("\n\r"); // opt // printf("\n\r");
+                print("\n\r");
             }
-            OutputPetscii(Items[ct].Text, 1); /* PETSCII, use print */
+            OutputPetscii(Items[ct].Text, 1);
             pos += strlen(Items[ct].Text);
         }
         ct++;
     }
     clreol();
-    print("\n\r"); // opt // printf("\n\r"); 
+    print("\n\r");
     clreol();
 
-    /* Put cursor back */
-    if(cs == 1)
-        gotoxy(xp,yp);
+    if(cs == 1) {
+        gotoxy(xp,yp); // put cursor back
+    }
 }
 
-// opt // int WhichWord(char *word, char **list)
-int8_t WhichWord(char *word, char **list)
-{
-    uint8_t n=1; // opt // int n=1;
-    uint8_t ne=1; // opt // int ne=1;
+int8_t WhichWord(char *word, char **list) {
+    uint8_t n=1;
+    uint8_t ne=1;
     char *tp;
 
-    while(ne<=GameHeader.NumWords)
-    {
+    while(ne<=GameHeader.NumWords) {
         tp=list[ne];
-        if(*tp=='*')
+        if(*tp=='*') {
             tp++;
-        else
+        } else {
             n=ne;
-            
-        if(strncasecmp(word,tp,GameHeader.WordLength)==0)
+        }
+        if(strncasecmp(word,tp,GameHeader.WordLength)==0) {
             return(n);
+        }
         ne++;
     }
     return(-1);
 }
 
-// mseelye - change text, border/bg colors on the C64 
+// Change text, border/bg colors on the C64
+// TODO: opt asm?
 void ColorChange(uint8_t code) {
     uint8_t curT = 0;
     uint8_t curD = 0;
@@ -892,104 +828,88 @@ void ColorChange(uint8_t code) {
     Look(1);
 }
 
-void LineInput(char *buf, uint8_t max)
-{
-    uint8_t pos=0; // opt // int pos=0;
-    uint8_t ch; // opt // int ch;
+// TODO opt as asm?
+void LineInput(char *buf, uint8_t max) {
+    uint8_t pos=0;
+    uint8_t ch;
     
-    while(1)
-    {
-        ch=(uint8_t)cgetc(); // opt // ch=(int)cgetc();
-        if(pos >= max-1)
-            ch=13; // auto end at max
-        switch(ch)
-        {
+    while(1) {
+        ch=(uint8_t)cgetc();
+        if(pos >= max-1) {
+            ch=13; // auto enter at max
+        }
+        switch(ch) {
             case 10:;
             case 13:;
                 buf[pos]=0;
-                print("\n\r"); // opt // printf("\n\r");
+                print("\n\r");
                 return;
             case 8:;
-            case 20:; /* added c64 DEL */
+            case 20:; // c64 DEL
             case 127:;
-                if(pos>0)
-                {
-                    print("\010"); // opt // printf("\010");
+                if(pos>0) {
+                    print("\010");
                     pos--;
                 }
                 break;
             default:
-                if(ch >= 0x85 && ch <= 0x8c) // Fkeys
+                if(ch >= 0x85 && ch <= 0x8c) { // Fkeys
                      ColorChange(ch);
-                if(ch>=' '&&ch<=126)
-                {
+                }
+                if(ch>=' '&&ch<=126) {
                     buf[pos++]=ch;
-                    print_char(ch); // opt // printf("%c",(char)ch);
+                    print_char(ch);
                 }
                 break;
         }
     }
 }
 
-// void GetInput(int* vb,int* no) // opt
-void GetInput(int8_t* vb, int8_t* no)
-{
-    char buf[80]; // can't use global block buffer, also reduced to 80 characters
+// Note: Can't use global block buffer, also reduced to 80 characters
+void GetInput(int8_t* vb, int8_t* no) {
+    char buf[80];
     char verb[10],noun[10];
-    int8_t vc=0,nc=0; // int vc=0,nc=0;
-    int8_t num=0; // int num=0;
-    do
-    {
-        do
-        {
+    int8_t vc=0,nc=0;
+    int8_t num=0;
+    do {
+        do {
             Output("\nTell me what to do ? ");
-            /* hack: refresh the top here after 
-             * the c64 has moved everything around, ignores Redraw for now */
-            Look(1);
+            Look(1); // hack: refresh the top here after c64 scroll, etc.
             LineInput(buf, 80);
             OutReset();
-            //num=sscanf(buf,"%9s %9s",verb,noun);
-            num=parseVerbNoun(buf, 9, verb, noun);
-        }
-        while(num<=0||*buf=='\n'); /* was num==0, sscanf returning -1 on none found? */
-        if(num==1)
+            num=parseVerbNoun(buf, 9, verb, noun); // "sscanf"
+        } while(num<=0||*buf=='\n');
+        if(num==1) {
             *noun=0;
-        if(*noun==0 && strlen(verb)==1)
-        {
-            switch(isupper(*verb)?tolower(*verb):*verb) // TODO: opt?
-            {
+        }
+        if(*noun==0 && strlen(verb)==1) {
+            switch(isupper(*verb)?tolower(*verb):*verb) { // TODO: opt isupper tolower? or just expand switch?
                 case 'n':strcpy(verb,"NORTH");break;
                 case 'e':strcpy(verb,"EAST");break;
                 case 's':strcpy(verb,"SOUTH");break;
                 case 'w':strcpy(verb,"WEST");break;
                 case 'u':strcpy(verb,"UP");break;
                 case 'd':strcpy(verb,"DOWN");break;
-                /* Brian Howarth interpreter also supports this */
-                case 'i':strcpy(verb,"INVENTORY");break;
+                case 'i':strcpy(verb,"INVENTORY");break; // Brian Howarth interpreter also supports i
             }
         }
         nc=WhichWord(verb,Nouns);
         /* The Scott Adams system has a hack to avoid typing 'go' */
-        if(nc>=1 && nc <=6)
-        {
+        if(nc>=1 && nc <=6) {
             vc=1;
-        }
-        else
-        {
+        } else {
             vc=WhichWord(verb,Verbs);
             nc=WhichWord(noun,Nouns);
         }
         *vb = vc;
         *no = nc;
-        if(vc==-1)
-        {
+        if(vc==-1) {
             Output("\"");
             Output(verb);
             Output("\" is a word I don't know...sorry!\n");
         }
-    }
-    while(vc==-1);
-    strcpy(NounText,noun);    /* Needed by GET/DROP hack */
+    } while(vc==-1);
+    strcpy(NounText,noun); // Needed by GET/DROP hack
 }
 
 void cbm_write_value(uint8_t filenum, uint32_t value, char *end) {
@@ -999,23 +919,23 @@ void cbm_write_value(uint8_t filenum, uint32_t value, char *end) {
     cbm_write(filenum, end, 1);
 }
 
-void SaveGame()
-{
-    char buf[32]; // can't use global block buffer, used to save last saved game file name
+// Note: Can't use global block buffer, used to save last saved game file name
+void SaveGame() {
+    // Note: static variables maintain values, sloppy cheat to keep saved game name
+    char filename[32];
     uint8_t ct=0;
     uint8_t filenum=1;
     uint8_t device=8; // TODO: current device?
     char *sp=" ";
     char *cr="\n";
     Output("Filename: ");
-    LineInput(buf, 32);
+    LineInput(filename, 32);
     Output("\n");
-    if (cbm_open(filenum, device, 1, buf)) {
+    if (cbm_open(filenum, device, 1, filename)) {
         Output("Unable to create save file.\n");
         return;
     }
-    while(ct < 16)
-    {
+    while(ct < 16) {
         cbm_write_value(filenum, Counters[ct], sp);
         cbm_write_value(filenum, RoomSaved[ct], cr);
         ct++;
@@ -1038,7 +958,7 @@ void SaveGame()
     }
     cbm_close(filenum);
 
-    SavedGame = buf; // static variables maintain values, sloppy cheat to keep saved game name
+    SavedGame = filename;
 
     Output("Saved.\n");
 }
@@ -1072,28 +992,25 @@ void LoadGame(char *name) {
     GameHeader.LightTime = (int8_t)cbm_read_next(filenum);
 
     /* Backward compatibility */
-    if(DarkFlag)
+    if(DarkFlag) {
         BitFlags|=(1L<<15);
+    }
     ct=0;
-    while(ct <= GameHeader.NumItems)
-    {
+    while(ct <= GameHeader.NumItems) {
         Items[ct].Location=(unsigned char)cbm_read_next(filenum);;
         ct++;
     }
     cbm_close(filenum);
 }
 
-/* This restores state to the initial state so the 
- * player can play again without reloading.
- * Only needed to add InitialPlayerRoom.
- */
-void FreshGame()
-{
+// This restores state to the initial state so the 
+// player can play again without reloading.
+// Only needed to add InitialPlayerRoom.
+void FreshGame() {
     uint8_t ct=0;
 
-    /* clean up counters and room saved */
-    while(ct < 16)
-    {
+    // Clean up counters and room saved
+    while(ct < 16) {
         Counters[ct]=0;
         RoomSaved[ct]=0;
         ct++;
@@ -1105,19 +1022,16 @@ void FreshGame()
     SavedRoom = 0;
     GameHeader.LightTime = LightRefill;
     ct=0;
-    while(ct < GameHeader.NumItems+1)
-    {
+    while(ct < GameHeader.NumItems+1) {
         Items[ct].Location=Items[ct].InitialLoc;
         ct++;
     }
 }
 
-/* This determines if we should load a saved game again
- * or start a fresh game again.
- * Option -r disables loading saved game
- */
-void NewGame()
-{
+// This determines if we should load a saved game again
+// or start a fresh game again.
+// Option -r enabled loading saved game
+void NewGame() {
     ClearScreen();
 
     if(SavedGame != NULL && (Options&RESTORE_SAVED_ON_RESTART)) {
@@ -1127,106 +1041,122 @@ void NewGame()
     }
 }
 
-// int PerformLine(int ct) // opt
-uint8_t PerformLine(uint8_t ct)
-{
-    uint8_t continuation=0; // opt // int continuation=0;
-    uint8_t pptr=0; // opt // int pptr=0;
-    uint16_t cc=0; // opt // int cc=0;
-    uint16_t act[4]; // opt  // int act[4];
-    uint8_t param[5]; // opt // int param[5];
-    while(cc<5)
-    {
-        uint16_t cv,dv; // int cv,dv;
+// TODO: asm opt
+uint8_t PerformLine(uint8_t ct) {
+    uint8_t continuation=0;
+    uint8_t pptr=0;
+    uint16_t cc=0;
+    uint16_t act[4];
+    uint8_t param[5];
+    while(cc<5) {
+        uint16_t cv,dv;
         cv=Actions[ct].Condition[cc];
         dv=cv/20;
         cv%=20;
-        switch(cv)
-        {
+        switch(cv) {
             case 0:
                 param[pptr++]=dv;
                 break;
             case 1:
-                if(Items[dv].Location!=CARRIED)
+                if(Items[dv].Location!=CARRIED) {
                     return(0);
+                }
                 break;
             case 2:
-                if(Items[dv].Location!=MyLoc)
+                if(Items[dv].Location!=MyLoc) {
                     return(0);
+                }
                 break;
             case 3:
                 if(Items[dv].Location!=CARRIED&&
-                    Items[dv].Location!=MyLoc)
+                    Items[dv].Location!=MyLoc) {
                     return(0);
+                }
                 break;
             case 4:
-                if(MyLoc!=dv)
+                if(MyLoc!=dv) {
                     return(0);
+                }
                 break;
             case 5:
-                if(Items[dv].Location==MyLoc)
+                if(Items[dv].Location==MyLoc) {
                     return(0);
+                }
                 break;
             case 6:
-                if(Items[dv].Location==CARRIED)
+                if(Items[dv].Location==CARRIED) {
                     return(0);
+                }
                 break;
             case 7:
-                if(MyLoc==dv)
+                if(MyLoc==dv) {
                     return(0);
+                }
                 break;
             case 8:
-                if((BitFlags&(1L<<dv))==0)
+                if((BitFlags&(1L<<dv))==0) {
                     return(0);
+                }
                 break;
             case 9:
-                if(BitFlags&(1L<<dv))
+                if(BitFlags&(1L<<dv)) {
                     return(0);
+                }
                 break;
             case 10:
-                if(CountCarried()==0)
+                if(CountCarried()==0) {
                     return(0);
+                }
                 break;
             case 11:
-                if(CountCarried())
+                if(CountCarried()) {
                     return(0);
+                }
                 break;
             case 12:
-                if(Items[dv].Location==CARRIED||Items[dv].Location==MyLoc)
+                if(Items[dv].Location==CARRIED||Items[dv].Location==MyLoc) {
                     return(0);
+                }
                 break;
             case 13:
-                if(Items[dv].Location==0)
+                if(Items[dv].Location==0) {
                     return(0);
+                }
                 break;
             case 14:
-                if(Items[dv].Location)
+                if(Items[dv].Location) {
                     return(0);
+                }
                 break;
             case 15:
-                if(CurrentCounter>dv)
+                if(CurrentCounter>dv) {
                     return(0);
+                }
                 break;
             case 16:
-                if(CurrentCounter<=dv)
+                if(CurrentCounter<=dv) {
                     return(0);
+                }
                 break;
             case 17:
-                if(Items[dv].Location!=Items[dv].InitialLoc)
+                if(Items[dv].Location!=Items[dv].InitialLoc) {
                     return(0);
+                }
                 break;
             case 18:
-                if(Items[dv].Location==Items[dv].InitialLoc)
+                if(Items[dv].Location==Items[dv].InitialLoc) {
                     return(0);
+                }
                 break;
-            case 19:/* Only seen in Brian Howarth games so far */
-                if(CurrentCounter!=dv)
+            case 19:// Only seen in Brian Howarth games so far
+                if(CurrentCounter!=dv) {
                     return(0);
+                }
                 break;
         }
         cc++;
     }
-    /* Actions */
+    // Actions
     act[0]=Actions[ct].Action[0];
     act[2]=Actions[ct].Action[1];
     act[1]=act[0]%150;
@@ -1235,33 +1165,28 @@ uint8_t PerformLine(uint8_t ct)
     act[2]/=150;
     cc=0;
     pptr=0;
-    while(cc<4)
-    {
-        if(act[cc]>=1 && act[cc]<52)
-        {
+    while(cc<4) {
+        if(act[cc]>=1 && act[cc]<52) {
             Output(Messages[act[cc]]);
             Output("\n");
-        }
-        else if(act[cc]>101)
-        {
+        } else if(act[cc]>101) {
             Output(Messages[act[cc]-50]);
             Output("\n");
-        }
-        else switch(act[cc])
-        {
-            case 0:/* NOP */
+        } else switch(act[cc]) {
+            case 0:// NOP
                 break;
             case 52:
-                if(CountCarried()==GameHeader.MaxCarry)
-                {
-                    if(Options&YOUARE)
+                if(CountCarried()==GameHeader.MaxCarry) {
+                    if(Options&YOUARE) {
                         Output("You are carrying too much.\n");
-                    else
+                    } else {
                         Output("I've too much to carry!\n");
+                    }
                     break;
                 }
-                if(Items[param[pptr]].Location==MyLoc)
+                if(Items[param[pptr]].Location==MyLoc) {
                     Redraw=1;
+                }
                 Items[param[pptr++]].Location= CARRIED;
                 break;
             case 53:
@@ -1273,8 +1198,9 @@ uint8_t PerformLine(uint8_t ct)
                 MyLoc=param[pptr++];
                 break;
             case 55:
-                if(Items[param[pptr]].Location==MyLoc)
+                if(Items[param[pptr]].Location==MyLoc) {
                     Redraw=1;
+                }
                 Items[param[pptr++]].Location=0;
                 break;
             case 56:
@@ -1287,81 +1213,78 @@ uint8_t PerformLine(uint8_t ct)
                 BitFlags|=(1L<<param[pptr++]);
                 break;
             case 59:
-                if(Items[param[pptr]].Location==MyLoc)
+                if(Items[param[pptr]].Location==MyLoc) {
                     Redraw=1;
+                }
                 Items[param[pptr++]].Location=0;
                 break;
             case 60:
                 BitFlags&=~(1L<<param[pptr++]);
                 break;
             case 61:
-                if(Options&YOUARE)
+                if(Options&YOUARE) {
                     Output("You are dead.\n");
-                else
+                } else {
                     Output("I am dead.\n");
+                }
                 BitFlags&=~(1L<<DARKBIT);
-                MyLoc=GameHeader.NumRooms;/* It seems to be what the code says! */
-                /* Look(0); this just messes stuff up now */
+                // Comment from sf1.14: It seems to be what the code says! */
+                MyLoc=GameHeader.NumRooms;
                 break;
-            case 62:
-            {
-                /* Bug fix for some systems - before it could get parameters wrong */
-                uint8_t i=param[pptr++]; // opt // int i=param[pptr++];
+            case 62: {
+                // Bug fix for some systems - before it could get parameters wrong
+                uint8_t i=param[pptr++];
                 Items[i].Location=param[pptr++];
                 Redraw=1;
                 break;
             }
             case 63:
-                /* mseelye - just restart */
-doneit:         Output("The game is now over.\n");
-                //getchar(); // TODO: opt?
-                sleep(5); // TEMP DEBUG
-                Restart=1;
+                // Note: death/game over
+                Output("The game is now over.\n");
+                cgetc();
+                Restart=1; // just restart
                 break;
-                // exit(0) // mseelye - not needed, looping!
             case 64:
                 Look(1);
                 break;
-            case 65:
-            {
-                uint8_t ct=0; // opt // int ct=0;
-                uint8_t n=0; // opt // int n=0;
-                while(ct<=GameHeader.NumItems)
-                {
+            case 65: {
+                // Note: death/game over
+                uint8_t ct=0;
+                uint8_t n=0;
+                while(ct<=GameHeader.NumItems) {
                     if(Items[ct].Location==GameHeader.TreasureRoom &&
-                      *Items[ct].Text=='*')
+                      *Items[ct].Text=='*') {
                         n++;
+                    }
                     ct++;
                 }
-                if(Options&YOUARE)
+                if(Options&YOUARE) {
                     Output("You have stored ");
-                else
+                } else {
                     Output("I've stored ");
+                }
                 OutputNumber(n);
                 Output(" treasures.  On a scale of 0 to 100, that rates ");
                 OutputNumber((n*100)/GameHeader.Treasures);
                 Output(".\n");
-                if(n==GameHeader.Treasures)
-                {
-                    Output("Well done.\n");
-                    goto doneit;
+                if(n==GameHeader.Treasures) {
+                    Output("Well done.\nThe game is now over.\n");
+                    cgetc();
+                    Restart=1; // just restart
                 }
                 break;
             }
-            case 66:
-            {
-                uint8_t ct=0; // opt // int ct=0;
-                uint8_t f=0; // opt // int f=0;
-                if(Options&YOUARE)
+            case 66: {
+                uint8_t ct=0;
+                uint8_t f=0;
+                if(Options&YOUARE) {
                     Output("You are carrying:\n");
-                else
+                } else {
                     Output("I'm carrying:\n");
-                while(ct<=GameHeader.NumItems)
-                {
-                    if(Items[ct].Location==CARRIED)
-                    {
-                        if(f==1)
-                        {
+                }
+                while(ct<=GameHeader.NumItems) {
+                    if(Items[ct].Location==CARRIED) {
+                        if(f==1) {
                             Output(" - ");
                         }
                         f=1;
@@ -1369,8 +1292,9 @@ doneit:         Output("The game is now over.\n");
                     }
                     ct++;
                 }
-                if(f==0)
+                if(f==0) {
                     Output("Nothing");
+                }
                 Output(".\n");
                 break;
             }
@@ -1382,26 +1306,26 @@ doneit:         Output("The game is now over.\n");
                 break;
             case 69:
                 GameHeader.LightTime=LightRefill;
-                if(Items[LIGHT_SOURCE].Location==MyLoc)
+                if(Items[LIGHT_SOURCE].Location==MyLoc) {
                     Redraw=1;
+                }
                 Items[LIGHT_SOURCE].Location=CARRIED;
                 BitFlags&=~(1L<<LIGHTOUTBIT);
                 break;
             case 70:
-                ClearScreen(); /* pdd. */
-                /* not needed OutReset(); */
+                ClearScreen();
                 gotoxy(0, TopHeight+2);
                 break;
             case 71:
                 SaveGame();
                 break;
-            case 72:
-            {
-                uint8_t i1=param[pptr++]; // opt // int i1=param[pptr++];
-                uint8_t i2=param[pptr++]; // opt // int i2=param[pptr++];
-                uint8_t t=Items[i1].Location; // opt // int t=Items[i1].Location;
-                if(t==MyLoc || Items[i2].Location==MyLoc)
+            case 72: {
+                uint8_t i1=param[pptr++];
+                uint8_t i2=param[pptr++];
+                uint8_t t=Items[i1].Location;
+                if(t==MyLoc || Items[i2].Location==MyLoc) {
                     Redraw=1;
+                }
                 Items[i1].Location=Items[i2].Location;
                 Items[i2].Location=t;
                 break;
@@ -1410,28 +1334,31 @@ doneit:         Output("The game is now over.\n");
                 continuation=1;
                 break;
             case 74:
-                if(Items[param[pptr]].Location==MyLoc)
+                if(Items[param[pptr]].Location==MyLoc) {
                     Redraw=1;
+                }
                 Items[param[pptr++]].Location= CARRIED;
                 break;
-            case 75:
-            {
-                uint8_t i1,i2; // opt // int i1,i2;
+            case 75: {
+                uint8_t i1,i2;
                 i1=param[pptr++];
                 i2=param[pptr++];
-                if(Items[i1].Location==MyLoc)
+                if(Items[i1].Location==MyLoc) {
                     Redraw=1;
+                }
                 Items[i1].Location=Items[i2].Location;
-                if(Items[i2].Location==MyLoc)
+                if(Items[i2].Location==MyLoc) {
                     Redraw=1;
+                }
                 break;
             }
-            case 76:    /* Looking at adventure .. */
+            case 76:    // Looking at adventure ..
                 Look(1);
                 break;
             case 77:
-                if(CurrentCounter>=0)
+                if(CurrentCounter>=0) {
                     CurrentCounter--;
+                }
                 break;
             case 78:
                 OutputNumber(CurrentCounter);
@@ -1439,22 +1366,20 @@ doneit:         Output("The game is now over.\n");
             case 79:
                 CurrentCounter=param[pptr++];
                 break;
-            case 80:
-            {
-                uint8_t t=MyLoc; // opt // int t=MyLoc;
+            case 80: {
+                uint8_t t=MyLoc;
                 MyLoc=SavedRoom;
                 SavedRoom=t;
                 Redraw=1;
                 break;
             }
-            case 81:
-            {
+            case 81: {
                 /* This is somewhat guessed. Claymorgue always
                    seems to do select counter n, thing, select counter n,
                    but uses one value that always seems to exist. Trying
                    a few options I found this gave sane results on ageing */
-                uint8_t t=param[pptr++]; // opt // int t=param[pptr++];
-                uint16_t c1=CurrentCounter; // opt // int c1=CurrentCounter;
+                uint8_t t=param[pptr++];
+                uint16_t c1=CurrentCounter;
                 CurrentCounter=Counters[t];
                 Counters[t]=c1;
                 break;
@@ -1464,8 +1389,9 @@ doneit:         Output("The game is now over.\n");
                 break;
             case 83:
                 CurrentCounter-=param[pptr++];
-                if(CurrentCounter< -1)
+                if(CurrentCounter< -1) {
                     CurrentCounter= -1;
+                }
                 /* Note: This seems to be needed. I don't yet
                    know if there is a maximum value to limit too */
                 break;
@@ -1479,12 +1405,11 @@ doneit:         Output("The game is now over.\n");
             case 86:
                 Output("\n");
                 break;
-            case 87:
-            {
+            case 87: {
                 /* Changed this to swap location<->roomflag[x]
                    not roomflag 0 and x */
-                uint8_t p=param[pptr++]; // opt // int p=param[pptr++];
-                uint8_t sr=MyLoc; // opt // int sr=MyLoc;
+                uint8_t p=param[pptr++];
+                uint8_t sr=MyLoc;
                 MyLoc=RoomSaved[p];
                 RoomSaved[p]=sr;
                 Redraw=1;
@@ -1500,7 +1425,6 @@ doneit:         Output("The game is now over.\n");
                 /* Poking this into older spectrum games causes a crash */
                 break;
             default:
-                // opt fprintf(stderr,"Unknown action %d [Param begins %d %d]\n", act[cc],param[pptr],param[pptr+1]);
                 // note: normally to error channel
                 print("Unknown action ");
                 print_number(act[cc]);
@@ -1517,126 +1441,118 @@ doneit:         Output("The game is now over.\n");
 }
 
 
-// int PerformActions(int vb,int no) // opt
-int8_t PerformActions(int8_t vb,int8_t no)
-{
-    static uint8_t disable_sysfunc=0; // opt // static int disable_sysfunc=0;    /* Recursion lock */
-    uint8_t d=BitFlags&(1L<<DARKBIT); // opt // int d=BitFlags&(1L<<DARKBIT);
+int8_t PerformActions(int8_t vb,int8_t no) {
+    static uint8_t disable_sysfunc=0;
+    uint8_t d=BitFlags&(1L<<DARKBIT);
     
     uint8_t ct=0; // opt // int ct=0;
     int8_t fl; // opt // int fl;
     uint8_t doagain=0; // opt // int doagain=0;
-    if(vb==1 && no == -1 )
-    {
+    if(vb==1 && no == -1 ) {
         Output("Give me a direction too.\n");
         return(0);
     }
-    if(vb==1 && no>=1 && no<=6)
-    {
+    if(vb==1 && no>=1 && no<=6) {
         uint8_t nl; // opt // int nl;
         if(Items[LIGHT_SOURCE].Location==MyLoc ||
-           Items[LIGHT_SOURCE].Location==CARRIED)
+           Items[LIGHT_SOURCE].Location==CARRIED) {
                d=0;
-        if(d)
+        }
+        if(d) {
             Output("Dangerous to move in the dark!\n");
+        }
         nl=Rooms[MyLoc].Exits[no-1];
-        if(nl!=0)
-        {
+        if(nl!=0) {
             MyLoc=nl;
             Output("O.K.\n");
             return(0);
         }
-        if(d)
-        {
-            if(Options&YOUARE)
+        if(d) {
+            // Note: death
+            if(Options&YOUARE) {
                 Output("You fell down and broke your neck.\n");
-            else
+            } else {
                 Output("I fell down and broke my neck.\n");
-            //sleep(5); - just use a getchar() for now;
-            //getchar(); // TODO: opt?
-            sleep(6); // TEMp DEBUG
+            }
+            cgetc();
             Restart=1;
             return(0);
-            // exit(0); - mseelye added restart logic to light death
         }
-        if(Options&YOUARE)
+        if(Options&YOUARE) {
             Output("You can't go in that direction.\n");
-        else
+        } else {
             Output("I can't go in that direction.\n");
+        }
         return(0);
     }
     fl= -1;
-    while(ct<=GameHeader.NumActions)
-    {
-        uint16_t vv,nv; // opt // int vv,nv;
+    while(ct<=GameHeader.NumActions) {
+        uint16_t vv,nv;
         vv=Actions[ct].Vocab;
         /* Think this is now right. If a line we run has an action73
            run all following lines with vocab of 0,0 */
-        if(vb!=0 && (doagain&&vv!=0))
+        if(vb!=0 && (doagain&&vv!=0)) {
             break;
+        }
         /* Oops.. added this minor cockup fix 1.11 */
-        if(vb!=0 && !doagain && fl== 0)
+        if(vb!=0 && !doagain && fl== 0) {
             break;
+        }
         nv=vv%150;
         vv/=150;
-        if((vv==vb)||(doagain&&Actions[ct].Vocab==0))
-        {
+        if((vv==vb)||(doagain&&Actions[ct].Vocab==0)) {
             if((vv==0 && RandomPercent(nv))||doagain||
-                (vv!=0 && (nv==no||nv==0)))
-            {
+                (vv!=0 && (nv==no||nv==0))) {
                 uint8_t f2; // opt // int f2;
-                if(fl== -1)
+                if(fl== -1) {
                     fl= -2;
-                if((f2=PerformLine(ct))>0)
-                {
+                }
+                if((f2=PerformLine(ct))>0) {
                     /* ahah finally figured it out ! */
                     fl=0;
-                    if(f2==2)
+                    if(f2==2) {
                         doagain=1;
-                    if(vb!=0 && doagain==0)
+                    }
+                    if(vb!=0 && doagain==0) {
                         return(0);
+                    }
                 }
             }
         }
         ct++;
-        if(Actions[ct].Vocab!=0)
+        if(Actions[ct].Vocab!=0) {
             doagain=0;
+        }
     }
-    if(fl!=0 && disable_sysfunc==0)
-    {
-        int8_t i; // opt // int i;
+    if(fl!=0 && disable_sysfunc==0) {
+        int8_t i;
         if(Items[LIGHT_SOURCE].Location==MyLoc ||
-           Items[LIGHT_SOURCE].Location==CARRIED)
+           Items[LIGHT_SOURCE].Location==CARRIED) {
                d=0;
-        if(vb==10 || vb==18) /* TAKE || DROP */
-        {
+        }
+        if(vb==10 || vb==18) { // TAKE || DROP
             /* Yes they really _are_ hardcoded values */
-            if(vb==10) /* TAKE */
-            {
-                if(strcasecmp(NounText,"ALL")==0)
-                {
-                    uint8_t ct=0; // opt // int ct=0;
-                    uint8_t f=0; // opt // int f=0;
+            if(vb==10) { // TAKE
+                if(strcasecmp(NounText,"ALL")==0) {
+                    uint8_t ct=0;
+                    uint8_t f=0;
                     
-                    if(d)
-                    {
+                    if(d) {
                         Output("It is dark.\n");
                         return 0;
                     }
-                    while(ct<=GameHeader.NumItems)
-                    {
-                        if(Items[ct].Location==MyLoc && Items[ct].AutoGet!=NULL && Items[ct].AutoGet[0]!='*')
-                        {
+                    while(ct<=GameHeader.NumItems) {
+                        if(Items[ct].Location==MyLoc && Items[ct].AutoGet!=NULL && Items[ct].AutoGet[0]!='*') {
                             no=WhichWord(Items[ct].AutoGet,Nouns);
                             disable_sysfunc=1;    /* Don't recurse into auto get ! */
                             PerformActions(vb,no);    /* Recursively check each items table code */
                             disable_sysfunc=0;
-                            if(CountCarried()==GameHeader.MaxCarry)
-                            {
-                                if(Options&YOUARE)
+                            if(CountCarried()==GameHeader.MaxCarry) {
+                                if(Options&YOUARE) {
                                     Output("You are carrying too much.\n");
-                                else
+                                } else {
                                     Output("I've too much to carry.\n");
+                                }
                                 return(0);
                             }
                             Items[ct].Location= CARRIED;
@@ -1647,30 +1563,30 @@ int8_t PerformActions(int8_t vb,int8_t no)
                         }
                         ct++;
                     }
-                    if(f==0)
+                    if(f==0) {
                         Output("Nothing taken.\n");
+                    }
                     return(0);
                 }
-                if(no==-1)
-                {
+                if(no==-1) {
                     Output("What ?\n");
                     return(0);
                 }
-                if(CountCarried()==GameHeader.MaxCarry)
-                {
-                    if(Options&YOUARE)
+                if(CountCarried()==GameHeader.MaxCarry) {
+                    if(Options&YOUARE) {
                         Output("You are carrying too much.\n");
-                    else
+                    } else {
                         Output("I've too much to carry.\n");
+                    }
                     return(0);
                 }
                 i=MatchUpItem(NounText,MyLoc);
-                if(i==-1)
-                {
-                    if(Options&YOUARE)
+                if(i==-1) {
+                    if(Options&YOUARE) {
                         Output("It is beyond your power to do that.\n");
-                    else
+                    } else {
                         Output("It's beyond my power to do that.\n");
+                    }
                     return(0);
                 }
                 Items[i].Location= CARRIED;
@@ -1678,44 +1594,40 @@ int8_t PerformActions(int8_t vb,int8_t no)
                 Redraw=1;
                 return(0);
             }
-            if(vb==18) /* DROP */
-            {
-                if(strcasecmp(NounText,"ALL")==0)
-                {
-                    uint8_t ct=0; // opt // int ct=0;
-                    uint8_t f=0; // opt // int f=0;
-                    while(ct<=GameHeader.NumItems)
-                    {
-                        if(Items[ct].Location==CARRIED && Items[ct].AutoGet && Items[ct].AutoGet[0]!='*')
-                        {
+            if(vb==18) { // DROP
+                if(strcasecmp(NounText,"ALL")==0) {
+                    uint8_t ct=0;
+                    uint8_t f=0;
+                    while(ct<=GameHeader.NumItems) {
+                        if(Items[ct].Location==CARRIED && Items[ct].AutoGet && Items[ct].AutoGet[0]!='*') {
                             no=WhichWord(Items[ct].AutoGet,Nouns);
                             disable_sysfunc=1;
                             PerformActions(vb,no);
                             disable_sysfunc=0;
                             Items[ct].Location=MyLoc;
-                            OutputPetscii(Items[ct].Text, 0); /* PETSCII, use OutBuf */
+                            OutputPetscii(Items[ct].Text, 0); //  PETSCII, use OutBuf
                             Output(": O.K.\n");
                             Redraw=1;
                             f=1;
                         }
                         ct++;
                     }
-                    if(f==0)
+                    if(f==0) {
                         Output("Nothing dropped.\n");
+                    }
                     return(0);
                 }
-                if(no==-1)
-                {
+                if(no==-1) {
                     Output("What ?\n");
                     return(0);
                 }
                 i=MatchUpItem(NounText,CARRIED);
-                if(i==-1)
-                {
-                    if(Options&YOUARE)
+                if(i==-1) {
+                    if(Options&YOUARE) {
                         Output("It's beyond your power to do that.\n");
-                    else
+                    } else {
                         Output("It's beyond my power to do that.\n");
+                    }
                     return(0);
                 }
                 Items[i].Location=MyLoc;
@@ -1728,16 +1640,70 @@ int8_t PerformActions(int8_t vb,int8_t no)
     return(fl);
 }
 
-// int main(int argc, char *argv[]) // opt
-uint8_t main(uint8_t argc, char *argv[])
-{
-    //FILE *f; // TODO opt?
-    uint8_t filenum = 1;
-    int8_t vb=0,no=0; // opt // int vb=0,no=0;
-    uint16_t chk[3] = {0,0,0};
+void CheckLight() {
+    // Brian Howarth games seem to use -1 for forever
+    if(Items[LIGHT_SOURCE].Location/*==-1*/!=DESTROYED && GameHeader.LightTime!= -1) {
+        GameHeader.LightTime--;
+        if(GameHeader.LightTime<1) {
+            BitFlags|=(1L<<LIGHTOUTBIT);
+            if(Items[LIGHT_SOURCE].Location==CARRIED ||
+                Items[LIGHT_SOURCE].Location==MyLoc) {
+                if(Options&SCOTTLIGHT) {
+                    Output("Light has run out! ");
+                } else {
+                    Output("Your light has run out. ");
+                }
+            }
+            if(Options&PREHISTORIC_LAMP) {
+                Items[LIGHT_SOURCE].Location=DESTROYED;
+            }
+        } else if(GameHeader.LightTime<25) {
+            if(Items[LIGHT_SOURCE].Location==CARRIED ||
+                Items[LIGHT_SOURCE].Location==MyLoc) {
+        
+                if(Options&SCOTTLIGHT) {
+                    Output("Light runs out in ");
+                    OutputNumber(GameHeader.LightTime);
+                    Output(" turns. ");
+                } else {
+                    if(GameHeader.LightTime%5==0) {
+                        Output("Your light is growing dim. ");
+                    }
+                }
+            }
+        }
+    }
+}
 
-    while(argv[1])
-    {
+// Main Game Loop here
+void GameLoop() {
+    int8_t vb=0,no=0;
+
+    while(1) {
+        // Note: Redraws removed, using look hack after prompt
+        PerformActions(0,0);
+        if(Restart!=0) {
+            Restart=0;
+            return; // Returns, Outer loop
+        } else {
+            GetInput(&vb,&no);
+            switch(PerformActions(vb,no)) {
+                case -1:
+                    Output("I don't understand your command.\n");
+                    break;
+                case -2:
+                    Output("I can't do that yet.\n");
+                    break;
+            }
+            CheckLight();
+        }
+    }
+}
+
+// Parse arg to Options, or fail
+uint8_t ParseArgs(uint8_t argc, char *argv[]) {
+    uint8_t argo = 0;
+    while(argv[1]) {
         if(*argv[1]!='-')
             break;
         switch(argv[1][1])
@@ -1762,15 +1728,12 @@ uint8_t main(uint8_t argc, char *argv[])
                 break;
             case 'h':
             default:
-                // opt // fprintf(stderr,"%s: [-h] [-y] [-s] [-i] [-d] [-p] [-r] <gamename> [savedgame].\n\r",argv[0]);
-                // opt // fprintf(stderr," -h:help\n\r -y:'you are'\n\r -s:scottlight\n\r -i:'i am'\n\r -d:debug\n\r -p:old lamp behavior\n\r -r:restore recent save on restart\n\r gamename:required\n\r savedgame:optional\n\r");
                 print(argv[0]);
                 print(": [-h] [-y] [-s] [-i] [-d] [-p] [-r] <gamename> [savedgame].\n\r");
                 print(" -h:help\n\r -y:'you are'\n\r -s:scottlight\n\r -i:'i am'\n\r -d:debug\n\r -p:old lamp behavior\n\r -r:restore recent save on restart\n\r gamename:required\n\r savedgame:optional\n\r");
                 exit(1);
         }
-        if(argv[1][2]!=0)
-        {
+        if(argv[1][2]!=0) {
             // opt // fprintf(stderr,"%s: option -%c does not take a parameter.\n\r", argv[0],argv[1][1]);
             print(argv[0]);
             print(": option -");
@@ -1780,156 +1743,99 @@ uint8_t main(uint8_t argc, char *argv[])
         }
         argv++;
         argc--;
+        argo++;
     }
 
-    if(argc!=2 && argc!=3)
-    {
-        // opt // fprintf(stderr,"run:rem <db file> <save file>\n\r");
+    if(argc!=2 && argc!=3) {
         print("run:rem <db file> <save file>\n\r");
         exit(1);
     }
+    
+    return(argo);
+}
+
+void GameSetup(char *filename, char *savedgame) {
+    uint8_t filenum = 1;
+    uint8_t device = 8; // TODO: Current Device
+    uint16_t chk[3] = {0,0,0};
+
     // TODO: device
-    if (cbm_open(filenum, 8, 2, argv[1])) {
+    if (cbm_open(filenum, device, 2, filename)) {
         print("Unable to load \"");
-        print(argv[1]);
+        print(filename);
         print_char('\"');
         exit(1);
     }
 
     Width = 40; 
     TopHeight = 10;
-    // Not Used: BottomHeight = 15;
 
-    /* DisplayUp=1; not used in this version */
     OutReset();
     ClearScreen();
-    textcolor (14); // Light blue
-    bgcolor (0);    // Black
-    bordercolor (11); // Dark Grey
+    textcolor (14);     // Light blue
+    bgcolor (0);        // Black
+    bordercolor (11);   // Dark Grey
 
-    /* cleaned up for 40 cols */
     print("ScottFree64 {VERSION}, A c64 port of:\
 ScottFree, Scott Adams game driver in C\
 Release 1.14b(PC), (c) 1993,1994,1995\
 Swansea University Computer Society.\
 Distributed under the GNU software\nlicense\n\n");
+
     print("MemFree(");
     print_number(_heapmemavail());
-    print(")\n");
+    print(")\nLoading ");
+    print(filename);
+    print(" as ");
 
+    // Detect ascii or binary
+    // Close and reopen in LoadDatabase call
     chk[0] = cbm_read_next(filenum);
     chk[1] = cbm_read_next(filenum);
     chk[2] = cbm_read_next(filenum);
     cbm_close(filenum);
-    print("chk:");
-    print_number(chk[0]);
-    print_char(',');
-    print_number(chk[1]);
-    print_char(',');
-    print_number(chk[2]);
-    print_char('\n');
     
-    
-    if(chk[0]==0 && chk[1]==0 && chk[2]==0) {
+    // if could not read text numbers, should be binary DAT
+    if(chk[0]==0 && chk[1]==0 && chk[2]==0) { 
         print("BDAT\n");
-        LoadDatabaseBinary(argv[1],(Options&DEBUGGING)?1:0); // load Binary DAT file
+        LoadDatabaseBinary(filename,(Options&DEBUGGING)?1:0); // load Binary DAT file
     } else {
         print("DAT\n");
-        LoadDatabase(argv[1],(Options&DEBUGGING)?1:0);  // load DAT file
+        LoadDatabase(filename,(Options&DEBUGGING)?1:0);  // load DAT file
     }
-    if(argc==3)
-        LoadGame(argv[2]);
-    srand((PEEK(0x00a2) << 8) | (PEEK(0xd012)));// opt //srand(time(NULL));
+    
+    // Load Saved Game
+    if(savedgame!=NULL) {
+        LoadGame(savedgame);
+    }
+    
+    // seed from c64 $a2 and $d012
+    srand((PEEK(0x00a2) << 8) | (PEEK(0xd012)));
 
     print("MemFree(");
     print_number(_heapmemavail());
     print(")\n");
 
-    //getchar();
+    // Initial Colors
+    textcolor (0);    // black
+    bgcolor (11);     // grey
+    bordercolor (11); // grey
+}
 
-    textcolor (0);
-    bgcolor (11);
-    bordercolor (11);
+uint8_t main(uint8_t argc, char *argv[]) {
+    int8_t argo = 0;
+    argo = ParseArgs(argc, argv);
+    
+    GameSetup(argv[argo+1], (argc-argo==3)? argv[argo+2] : NULL);
 
-    /* Added a loop here, and a Restart flag, and a fucntion to reset the game. */
-    while(1)
-    {
-        ClearScreen(); /* was Look(1) */
+    // Outer Loop
+    // Loops here, restart flag used to reset/restart the game.
+    while(1) {
+        ClearScreen();
         gotoxy(0, TopHeight+1);
         Redraw = 1;
-
-        while(1)
-        {
-/* using look hack after prompt
-            if(Redraw!=0)
-            {
-                Look(1);
-                Redraw=0;
-            }
-*/
-            PerformActions(0,0);
-/*
-            if(Redraw!=0)
-            {
-                Look(1);
-                Redraw=0;
-            }
-*/
-            if(Restart!=0)
-            {
-                NewGame();
-                Restart=0;
-                break; // breaks out of while(1)
-            }
-            else
-            {
-                GetInput(&vb,&no);
-                switch(PerformActions(vb,no))
-                {
-                    case -1:Output("I don't understand your command.\n");
-                        break;
-                    case -2:Output("I can't do that yet.\n");
-                        break;
-                }
-                /* Brian Howarth games seem to use -1 for forever */
-                if(Items[LIGHT_SOURCE].Location/*==-1*/!=DESTROYED && GameHeader.LightTime!= -1)
-                {
-                    GameHeader.LightTime--;
-                    if(GameHeader.LightTime<1)
-                    {
-                        BitFlags|=(1L<<LIGHTOUTBIT);
-                        if(Items[LIGHT_SOURCE].Location==CARRIED ||
-                            Items[LIGHT_SOURCE].Location==MyLoc)
-                        {
-                            if(Options&SCOTTLIGHT)
-                                Output("Light has run out! ");
-                            else
-                                Output("Your light has run out. ");
-                        }
-                        if(Options&PREHISTORIC_LAMP)
-                            Items[LIGHT_SOURCE].Location=DESTROYED;
-                    }
-                    else if(GameHeader.LightTime<25)
-                    {
-                        if(Items[LIGHT_SOURCE].Location==CARRIED ||
-                            Items[LIGHT_SOURCE].Location==MyLoc)
-                        {
-                    
-                            if(Options&SCOTTLIGHT)
-                            {
-                                Output("Light runs out in ");
-                                OutputNumber(GameHeader.LightTime);
-                                Output(" turns. ");
-                            }
-                            else
-                            {
-                                if(GameHeader.LightTime%5==0)
-                                    Output("Your light is growing dim. ");
-                            }
-                        }
-                    }
-                }
-            }
-        }
+        GameLoop(); // Loops until Restart flag set;
+        NewGame();
     }
+    return(0);
 }
