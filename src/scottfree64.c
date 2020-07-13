@@ -65,23 +65,16 @@
 #include <string.h>
 #include <stdlib.h>
 #include <ctype.h>
-#include <stdarg.h>
 #include <conio.h>
-#include <time.h>
 #include <unistd.h>
 
 #include "scottfree.h"
+#include "sf64.h"
+#include <stdint.h>
 
-// #include <peekpoke.h> // cc65's peek and poke
-//   for clarity, just inlining the macro.
 #ifndef PEEK
     #define PEEK(addr)         (*(unsigned char*) (addr))
 #endif
-
-/* not used
-#define TRUE 1
-#define FALSE 0
-*/
 
 Header GameHeader;
 /* Tail GameTail; not used in this version */
@@ -91,22 +84,22 @@ char **Verbs;
 char **Nouns;
 char **Messages;
 Action *Actions;
-int LightRefill = 0;
+int8_t LightRefill = 0;
 char NounText[16];
-int Counters[16];    /* Range unknown */
-int CurrentCounter = 0;
-int SavedRoom = 0;
-int RoomSaved[16];    /* Range unknown */
+int8_t Counters[16];    /* Range unknown */
+int8_t CurrentCounter = 0;
+int8_t SavedRoom = 0;
+int8_t RoomSaved[16];    /* Range unknown */
 /* int DisplayUp; not used in the version */
 /* void *Top,*Bottom; not used in this version */
-int Redraw = 0;        /* Update item window */
-int Restart = 0;        /* mseelye - Flag to restart game, see NewGame() */
+int8_t Redraw = 0;        /* Update item window */
+int8_t Restart = 0;        /* mseelye - Flag to restart game, see NewGame() */
 char *SavedGame;    /* mseelye - Name of the saved game that was loaded, if any */
-int Options = 0;        /* Option flags set */
-int Width = 0;        /* Terminal width */
-int TopHeight = 0;        /* Height of top window */
+int8_t Options = 0;        /* Option flags set */
+int8_t Width = 0;        /* Terminal width */
+int8_t TopHeight = 0;        /* Height of top window */
 // Not Used: int BottomHeight;    /* Height of bottom window */
-int InitialPlayerRoom = 0; /* mseelye - added to help with restarting w/o reloading see: NewGame() */
+int8_t InitialPlayerRoom = 0; /* mseelye - added to help with restarting w/o reloading see: NewGame() */
 char block[512]; /* global buffer, used by multiple functions for temp storage */
 
 #define RESTORE_SAVED_ON_RESTART 32 /* new option that autoloads saved game on restart */
@@ -122,8 +115,10 @@ long BitFlags=0;    /* Might be >32 flags - I haven't seen >32 yet */
 /* mseelye - put in a getch(); to have it pause before exiting. */
 void Fatal(char *x)
 {
-    printf("%s\n",x);
-    getchar();
+    //printf("%s\n",x); // opt
+    print(x);
+    print_char('\n');
+    // getchar(); // TODO
     exit(1);
 }
 
@@ -135,7 +130,7 @@ void ClearScreen(void)
 
 void ClearTop(void)
 {
-    int ct=0;
+    uint8_t ct=0; // opt //int ct=0;
     
     while(ct < TopHeight)
     {
@@ -143,30 +138,32 @@ void ClearTop(void)
     }
 }
 
-void *MemAlloc(int size)
+void *MemAlloc(uint16_t size) // opt // void *MemAlloc(int size)
 {
     void *t=(void *)malloc(size);
     if(t==NULL) 
     {
-        printf("malloc(%d) failed: ", size);
+        // printf("malloc(%d) failed: ", size); // opt
+        print("malloc failed, size: ");
+        print_number(size);
         Fatal("Out of memory");
     }
     return(t);
 }
 
-int RandomPercent(int n)
+uint8_t RandomPercent(uint16_t n) // opt // int RandomPercent(int n)
 {
-    unsigned int rv=rand()<<6;
+    uint16_t rv=rand()<<6; // opt // unsigned int rv=rand()<<6; 
     rv%=100;
     if(rv<n)
         return(1);
     return(0);
 }
 
-int CountCarried()
+uint8_t CountCarried() // opt // int CountCarried()
 {
-    int ct=0;
-    int n=0;
+    uint8_t ct=0; // opt // int ct=0;
+    uint8_t n=0;// opt // int n=0;
     while(ct<=GameHeader.NumItems)
     {
         if(Items[ct].Location==CARRIED)
@@ -178,7 +175,7 @@ int CountCarried()
 
 char *MapSynonym(char *word)
 {
-    int n=1;
+    uint8_t n=1; // opt // int n=1;
     char *tp;
     static char lastword[16];    /* Last non synonym */
     while(n<=GameHeader.NumWords)
@@ -187,7 +184,7 @@ char *MapSynonym(char *word)
         if(*tp=='*')
             tp++;
         else
-            strcpy(lastword,tp);
+            strcpy(lastword,tp); // TODO opt?
         if(strncasecmp(word,tp,GameHeader.WordLength)==0)
             return(lastword);
         n++;
@@ -195,10 +192,10 @@ char *MapSynonym(char *word)
     return(NULL);
 }
 
-int MatchUpItem(char *text, int loc)
+int8_t MatchUpItem(char *text, int loc) // opt // int MatchUpItem(char *text, int loc)
 {
     char *word=MapSynonym(text);
-    int ct=0;
+    uint8_t ct=0; // opt // int ct=0;
     
     if(word==NULL)
         word=text;
@@ -213,70 +210,88 @@ int MatchUpItem(char *text, int loc)
     return(-1);
 }
 
-/* ASCII to PETSCII
- *   If ASCII and the chr$ is 65 to 90 then add 32.
- *   If ASCII and the chr$ is 97 to 122 then subtract 32.
- *   If ASCII and the chr$ is 8 then change it to 20.
- */
-int a2p(int c)
-{
-    if(c>=65 && c<=90)
-        return(c+32);
-    else if(c>=97 && c<=123)
-        return(c-32);
-    return(c);
-}
-
-/*
- * ASCII to PETSCII string at *a
- * Note: This actually changes the data in memory at that location.
- * Calling this a second time would convert a string back.
- */
-void a2pString(char* a, int s)
-{
-    int ct=0;
-    while(ct < s)
-    {
-        if(a[ct]==0 || ct >= 512)
-            break;
-        a[ct] = a2p(a[ct]);
-        ct++;
+// read file until next whitespace, convert to 32 bit integer
+uint32_t cbm_read_next(uint8_t filenum) {
+    char buf[32]; // block?
+    int8_t c = 0;
+    uint8_t ct=0;
+    int8_t t=0;
+    // Skip over initial ws
+    do {
+        t = cbm_read(filenum, &c, 1);
+    } while(t > 0 && isspace((int)c));
+    if(t<0) {
+        Fatal("Error reading data");
     }
+    if(t==0) {
+        Fatal("Unexpected EOF while reading data");
+    }
+    buf[ct++]=c; // first usable character after any whitespace
+    do {
+        t = cbm_read(filenum, &c, 1);
+        if(t <= 0 || c==' ' || c=='\n' || c=='\r') // ws = parse delim c==EOF || 
+            break;
+        buf[ct++]=c;
+    } while(ct<31);
+    buf[ct]=0;
+    return(atol(buf));
 }
 
-char* ReadString (FILE* f, int ca2p)
+char* ReadString (uint8_t filenum, uint8_t ca2p) // opt // char* ReadString (FILE* f, int ca2p)
 {
     //char tmp[1024]; // use block
-    char* t;
-    int c,nc;
-    int ct=0;
+    uint8_t ct=0;
+    uint8_t c, nc;
+    uint8_t pbc = 0; // pushback buffer (static variables)
+    int8_t t = 0;
+    char* r; // result
 
     do
     {
-        c=fgetc(f);
+        if(pbc==0) {
+            t = cbm_read(filenum, &c, 1);
+        }
+        else {
+            c = pbc;
+            pbc = 0;
+        }
     }
-    while(c!=EOF && isspace(c));
+    while(t > 0 && isspace((int)c));
     if(c!='"')
     {
+        //print("Expected quote found:");
+        //print_char(c);
+        //print_char('\n');
         Fatal("Initial quote expected");
     }
     do
     {
-        c=fgetc(f);
-        if(c==EOF)
+        if(pbc==0)
+            t = cbm_read(filenum, &c, 1);
+        else {
+            c = pbc;
+            pbc = 0;
+        }
+        if(t<=0) // EOF or ERROR
             Fatal("EOF in string");
         if(c=='"')
         {
-            nc=fgetc(f);
+            if(pbc==0)
+                t = cbm_read(filenum, &nc, 1);
+            else {
+                nc = pbc;
+                pbc = 0;
+            }
             if(nc!='"')
             {
-                ungetc(nc,f);
+                //ungetc(nc,f); // uh
+                pbc=nc;
                 break;
             }
         }
         if(c==0x60)
             c='"'; /* pdd */
-        if(c=='\n') // \n\r seems backwards? shouldn't it be \r\n
+        if(c=='\n')
         {
             block[ct++]=c;
             c='\r';    /* 1.12a PC - pdd */
@@ -285,120 +300,128 @@ char* ReadString (FILE* f, int ca2p)
             c=a2p(c); /* Convert to PETSCII */
         }
         block[ct++]=c;
-
-        __asm__ ("inc $d020");
+        //__asm__ ("inc $d020");
     }
     while(1);
     block[ct]=0;
-    t=MemAlloc(ct+1);
-    memcpy(t,block,ct+1);
-    return(t);
+    r=MemAlloc(ct+1);
+    memcpy(r,block,ct+1);
+    return(r);
 }
 
-void LoadDatabase (FILE* f, int loud)
+void DebugMessage(uint8_t loud, char *msg, uint8_t num) {
+    if(loud) {
+        print_char('\n');
+        print_number(num);
+        print_char(' ');
+        print(msg);
+    }
+}
+
+// Load Standard DAT File
+void LoadDatabase (char *filename, uint8_t loud)
 {
-    int ni,na,nw,nr,mc,pr,tr,wl,lt,mn,trm;
-    int ct;
-    short lo;
+    uint8_t ct=0;
+    uint8_t filenum=1;
+    uint8_t device=8; // cbm // TODO: fix this.. wtf is wrong with $ba
+    uint8_t lo;
     Action *ap;
     Room *rp;
     Item *ip;
-/* Load the header */
 
-    if(fscanf(f,"%*d %d %d %d %d %d %d %d %d %d %d %d",
-        &ni,&na,&nw,&nr,&mc,&pr,&tr,&wl,&lt,&mn,&trm,&ct)<10)
-        Fatal("Invalid database(bad header)");
-    GameHeader.NumItems=ni;
-    Items=(Item *)MemAlloc(sizeof(Item)*(ni+1));
-    GameHeader.NumActions=na;
-    Actions=(Action *)MemAlloc(sizeof(Action)*(na+1));
-    GameHeader.NumWords=nw;
-    GameHeader.WordLength=wl;
-    Verbs=(char **)MemAlloc(sizeof(char *)*(nw+1));
-    Nouns=(char **)MemAlloc(sizeof(char *)*(nw+1));
-    GameHeader.NumRooms=nr;
-    Rooms=(Room *)MemAlloc(sizeof(Room)*(nr+1));
-    GameHeader.MaxCarry=mc;
-    GameHeader.PlayerRoom=pr;
-    InitialPlayerRoom=pr;   // mseelye - added this to help with restarting adventure w/o reloading.
-    GameHeader.Treasures=tr;
-    GameHeader.LightTime=lt;
-    LightRefill=lt;
-    GameHeader.NumMessages=mn;
-    Messages=(char **)MemAlloc(sizeof(char *)*(mn+1));
-    GameHeader.TreasureRoom=trm;
+    // Open File
+     if (cbm_open(filenum, device, 2, filename)) {
+         Fatal("File error!");
+     }
 
-/* Load the actions */
+    GameHeader.Unknown=cbm_read_next(filenum);
+    GameHeader.NumItems=cbm_read_next(filenum);
+    GameHeader.NumActions=cbm_read_next(filenum);
+    GameHeader.NumWords=cbm_read_next(filenum);
+    GameHeader.NumRooms=cbm_read_next(filenum);
+    GameHeader.MaxCarry=cbm_read_next(filenum);
+    GameHeader.PlayerRoom=cbm_read_next(filenum);
+    GameHeader.Treasures=cbm_read_next(filenum);
+    GameHeader.WordLength=cbm_read_next(filenum);
+    GameHeader.LightTime=cbm_read_next(filenum);
+    GameHeader.NumMessages=cbm_read_next(filenum);
+    GameHeader.TreasureRoom=cbm_read_next(filenum);
+    InitialPlayerRoom=GameHeader.PlayerRoom;   // mseelye - added this to help with restarting adventure w/o reloading.
+    LightRefill=GameHeader.LightTime;
+    
+    Items=(Item *)MemAlloc(sizeof(Item)*(GameHeader.NumItems+1));
+    Actions=(Action *)MemAlloc(sizeof(Action)*(GameHeader.NumActions+1));
+    Verbs=(char **)MemAlloc(sizeof(char *)*(GameHeader.NumWords+1));
+    Nouns=(char **)MemAlloc(sizeof(char *)*(GameHeader.NumWords+1));
+    Rooms=(Room *)MemAlloc(sizeof(Room)*(GameHeader.NumRooms+1));
+    Messages=(char **)MemAlloc(sizeof(char *)*(GameHeader.NumMessages+1));
 
     ct=0;
     ap=Actions;
-    if(loud)
-        printf("\nReading %d actions.",na);
-    while(ct<na+1)
+    DebugMessage(loud, "actions", GameHeader.NumActions+1);
+    while(ct < GameHeader.NumActions+1)
     {
-        if(fscanf(f,"%hd %hd %hd %hd %hd %hd %hd %hd",
-            &ap->Vocab,
-            &ap->Condition[0],
-            &ap->Condition[1],
-            &ap->Condition[2],
-            &ap->Condition[3],
-            &ap->Condition[4],
-            &ap->Action[0],
-            &ap->Action[1])!=8)
-        {
-            printf("Bad action line (%d)\n",ct);
-            exit(1);
-        }
-        __asm__ ("inc $d020");
+        ap->Vocab=(short)cbm_read_next(filenum);
+        ap->Condition[0]=(short)cbm_read_next(filenum);
+        ap->Condition[1]=(short)cbm_read_next(filenum);
+        ap->Condition[2]=(short)cbm_read_next(filenum);
+        ap->Condition[3]=(short)cbm_read_next(filenum);
+        ap->Condition[4]=(short)cbm_read_next(filenum);
+        ap->Action[0]=(short)cbm_read_next(filenum);
+        ap->Action[1]=(short)cbm_read_next(filenum);
         if(loud)
-            printf(".");
+            print_char('.');
         ap++;
         ct++;
     }
+
     ct=0;
-    if(loud)
-        printf("\nReading %d word pairs.",nw);
-    while(ct<nw+1)
+    // printf("\nReading %d word pairs.",nw); // opt
+    DebugMessage(loud, "pairs", GameHeader.NumWords+1);
+    while(ct<GameHeader.NumWords+1)
     {
-        Verbs[ct]=ReadString(f,0);
-        Nouns[ct]=ReadString(f,0);
+        Verbs[ct]=ReadString(filenum,0);
+        Nouns[ct]=ReadString(filenum,0);
         ct++;
         if(loud)
-            printf(".");
+            print_char('.'); // opt // printf(".");
     }
+
     ct=0;
     rp=Rooms;
-    if(loud)
-        printf("\nReading %d rooms.",nr);
-    while(ct<nr+1)
+    DebugMessage(loud, "rooms", GameHeader.NumRooms+1);
+    while(ct<GameHeader.NumRooms+1)
     {
-        fscanf(f,"%hd %hd %hd %hd %hd %hd",
-            &rp->Exits[0],&rp->Exits[1],&rp->Exits[2],
-            &rp->Exits[3],&rp->Exits[4],&rp->Exits[5]);
-        rp->Text=ReadString(f,1);
+        rp->Exits[0]=(short)cbm_read_next(filenum);
+        rp->Exits[1]=(short)cbm_read_next(filenum);
+        rp->Exits[2]=(short)cbm_read_next(filenum);
+        rp->Exits[3]=(short)cbm_read_next(filenum);
+        rp->Exits[4]=(short)cbm_read_next(filenum);
+        rp->Exits[5]=(short)cbm_read_next(filenum);
+        rp->Text=ReadString(filenum,1);
         ct++;
         rp++;
         if(loud)
-            printf(".");
+            print_char('.');
     }
+
     ct=0;
-    if(loud)
-        printf("\nReading %d messages.",mn);
-    while(ct<mn+1)
+    DebugMessage(loud, "messages", GameHeader.NumMessages+1);
+    while(ct<GameHeader.NumMessages+1)
     {
-        Messages[ct]=ReadString(f,1);
+        Messages[ct]=ReadString(filenum,1);
         ct++;
         if(loud)
-            printf(".");
+            print_char('.');
     }
+
     ct=0;
-    if(loud)
-        printf("\nReading %d items.",ni);
+    DebugMessage(loud, "items", GameHeader.NumItems+1);
     ip=Items;
-    while(ct<ni+1)
+    while(ct<GameHeader.NumItems+1)
     {
-        ip->Text=ReadString(f,0);
-        ip->AutoGet=strchr(ip->Text,'/');
+        ip->Text=ReadString(filenum,0);
+        ip->AutoGet=strchr(ip->Text,'/'); // TODO: opt?
         /* Some games use // to mean no auto get/drop word! */
         if(ip->AutoGet && strcmp(ip->AutoGet,"//") && strcmp(ip->AutoGet,"/*"))
         {
@@ -408,73 +431,75 @@ void LoadDatabase (FILE* f, int loud)
             if(t!=NULL)
                 *t=0;
         }
-        fscanf(f,"%hd",&lo);
+        lo=cbm_read_next(filenum);
         ip->Location=(unsigned char)lo;
         ip->InitialLoc=ip->Location;
         ip++;
         ct++;
         if(loud)
-            printf(".");
+            print_char('.');
     }
+    
     ct=0;
     /* Discard Comment Strings */
-    while(ct<na+1)
+    while(ct<GameHeader.NumActions+1)
     {
-        free(ReadString(f,0));
+        free(ReadString(filenum,0));
         ct++;
         if(loud)
-            printf(".");
+            print_char('.');
     }
-    fscanf(f,"%d",&ct);
-    if(loud)
-        printf("Version %d.%02d of Adventure ",
-        ct/100,ct%100);
-    fscanf(f,"%d",&ct);
-    if(loud)
-        printf("%d.\nLoad Complete.\n\n",ct);
+
+    if(loud) {
+        uint16_t adv = 0;
+        adv=cbm_read_next(filenum);
+        print("\nv");
+        print_number(adv/100);
+        print_char('.');
+        print_number(adv%100);
+        print(" of Adv. ");
+        adv=cbm_read_next(filenum);
+        print_number(adv);
+        // skip magic number
+        //adv=cbm_read_next(filenum);
+        print("\nDone!\n");
+    }
+
+    cbm_close(filenum);
 }
 
 // Load Binary DAT String
-char *LoadString(FILE *f) 
+uint8_t *LoadString(filenum)
 {
-    char *string;
-    int length = (int)fgetc(f);
-    string=(char *)MemAlloc((length+1) * sizeof(char));
+    uint8_t *string;
+    uint8_t length = 0;
+    cbm_read(filenum, &length, 1); // note: no check
+    string=(uint8_t *)MemAlloc((length+1) * sizeof(uint8_t));
     if(length == 0) {
-        fgetc(f); // fseek(f, 1, SEEK_CUR);
+        cbm_read(filenum, &length, 1);
         string[0]='\0';
         return(string);
     }
-    fread(string, sizeof(char), length+1, f);
+    cbm_read(filenum, string, (length+1) * sizeof(uint8_t));
     return(string);
 }
 
 // Load Binary DAT File
-void LoadDatabaseBinary (FILE* f, int loud)
+void LoadDatabaseBinary (char *fn, uint8_t loud)
 {
-    int ct=0;
+    uint8_t ct=0;
+    uint8_t filenum=1;
+    uint8_t device=8; // TODO: get current device!
     Action *ap;
     Room *rp;
     Item *ip;
 
-/*
-    cc65 turns this into a HUGE block of asm
-    fread(&GameHeader.Unknown, short, 1, f);
-    fread(&GameHeader.NumItems, short, 1, f);
-    fread(&GameHeader.NumActions, short, 1, f);
-    fread(&GameHeader.NumWords, short, 1, f);
-    fread(&GameHeader.NumRooms, short, 1, f);
-    fread(&GameHeader.MaxCarry, short, 1, f);
-    fread(&GameHeader.PlayerRoom, short, 1, f);
-    fread(&GameHeader.Treasures, short, 1, f);
-    fread(&GameHeader.WordLength, short, 1, f);
-    fread(&GameHeader.LightTime, short, 1, f);
-    fread(&GameHeader.NumMessages, short, 1, f);
-    fread(&GameHeader.TreasureRoom, short, 1, f);
-*/
-    // Can just load it all
-    fread(&GameHeader.Unknown, sizeof(short), 12, f);  
-        InitialPlayerRoom=GameHeader.PlayerRoom;
+    if (cbm_open(filenum, device, 2, fn)) {
+        Fatal("File error!");
+    }
+
+    cbm_read(filenum, &GameHeader.Unknown, sizeof(GameHeader)); // note: no check
+    InitialPlayerRoom=GameHeader.PlayerRoom;
     LightRefill=GameHeader.LightTime;
 
     // Allocate this all here, may help with fragmentation
@@ -485,110 +510,107 @@ void LoadDatabaseBinary (FILE* f, int loud)
     Messages=(char **)MemAlloc(sizeof(char *)*(GameHeader.NumMessages+1));
     Items=(Item *)MemAlloc(sizeof(Item)*(GameHeader.NumItems+1));
 
-    if(loud)
-        printf("\n%d actions", GameHeader.NumActions);
-
+    DebugMessage(loud, "actions", GameHeader.NumActions);
     ct=0;
     ap=Actions;
     while(ct < GameHeader.NumActions+1)
     {
-        fread(ap, sizeof(Action), 1, f);
+        cbm_read(filenum, ap, sizeof(Action));
         ct++;
         ap++;
         if(loud)
-            printf(".");
+            print_char('.');
     }
 
-    if(loud)
-        printf("\n%d word pairs",GameHeader.NumWords);
+    DebugMessage(loud, "pairs", GameHeader.NumWords);
     ct=0;
     while(ct < GameHeader.NumWords+1)
     {
-        Verbs[ct] = LoadString(f);
-        Nouns[ct] = LoadString(f);
+        Verbs[ct] = LoadString(filenum);
+        Nouns[ct] = LoadString(filenum);
         ct++;
         if(loud)
-            printf(".");
+            print_char('.');
     }
 
-    if(loud)
-        printf("\n%d rooms",GameHeader.NumRooms);
+    DebugMessage(loud, "rooms", GameHeader.NumRooms);
     ct=0;
     rp=Rooms;
     while(ct < GameHeader.NumRooms+1)
     {
-        fread(rp->Exits, sizeof(short), 6, f);
-        rp->Text = LoadString(f);
-        // might be faster to do this outside this loop, but code is smaller with it being done here.
-        a2pString(rp->Text, strlen(rp->Text)); 
+        cbm_read(filenum, rp->Exits, 6 * sizeof(uint16_t));
+        rp->Text = LoadString(filenum);
+        a2p_string(rp->Text, 0);
         ct++;
         rp++;
         if(loud)
-            printf(".");
+            print_char('.');
     }
 
-    if(loud)
-        printf("\n%d messages",GameHeader.NumMessages);
+    DebugMessage(loud, "messages", GameHeader.NumMessages);
     ct=0;
     while(ct < GameHeader.NumMessages+1)
     {
-        Messages[ct]=LoadString(f);
-        a2pString(Messages[ct], strlen(Messages[ct]));
+        Messages[ct]=LoadString(filenum);
+        a2p_string(Messages[ct], 0);
         ct++;
         if(loud)
-            printf(".");
+            print_char('.');
     }
 
-    if(loud)
-        printf("\n%d items",GameHeader.NumItems);
+    DebugMessage(loud, "items", GameHeader.NumItems);
     ct=0;
     ip=Items;
     while(ct < GameHeader.NumItems+1)
     {
-        ip->Text=LoadString(f);
-        ip->AutoGet=LoadString(f);
+        ip->Text=LoadString(filenum);
+        ip->AutoGet=LoadString(filenum);
         // SF likes Autoget to be NULL not empty
-        if(strlen(ip->AutoGet)==0) {
+        if (ip->AutoGet[0]==0) {
             free(ip->AutoGet);
             ip->AutoGet = NULL;
         }
-        fread(&ip->Location, sizeof(unsigned char), 1, f);
+        cbm_read(filenum, &ip->Location, 1);
         ip->InitialLoc=ip->Location;
         ct++;
         ip++;
         if(loud)
-            printf(".");
+            print_char('.');
     }
 
     /* Discard Comment Strings */
     ct=0;
     while(ct < GameHeader.NumActions+1) {
-        free(LoadString(f)); // load it and free it
+        free(LoadString(filenum)); // load it and free it
         ct++;
         if(loud)
-            printf(".");
+            print_char('.');
     }
 
-    fread(&ct, sizeof(short), 1 , f);
-    if(loud)
-        printf("\nv%d.%02d of Adv. ",
-        ct/100,ct%100);
-    fread(&ct, sizeof(short), 1, f);
-    if(loud)
-        printf("%d.\nDone\n\n",ct);
-
-    //fread(&ct, sizeof(short), 1, f); // skip magic number
-    //exit(1);
+    if(loud) {
+        uint16_t adv = 0;
+        cbm_read(filenum, &adv, 2);
+        print("\nv");
+        print_number(adv/100);
+        print_char('.');
+        print_number(adv%100);
+        print(" of Adv. ");
+        cbm_read(filenum, &adv, 2);
+        print_number(adv);
+        // skip magic number
+        //cbm_read(filenum, &ct, 2);
+        print("\nDone!\n");
+    }
+    cbm_close(filenum);
 }
 
-int OutputPos=0;
+uint8_t OutputPos=0; // opt // int OutputPos=0;
 
 void clreol() {
-    int x, y;
-    
+    uint8_t x, y; // opt // int x, y;
     x=wherex();
     y=wherey();
-    cclearxy (x, y, Width-x);
+    cclearxy(x, y, Width-x);
     gotoxy(x,y);
 }
 
@@ -602,18 +624,18 @@ void OutReset()
 void OutBuf(char *buffer)
 {
     char word[80]; // note: can't use global block buffer, would overlap from Output()
-    int wp;
+    uint8_t wp; // opt // int wp;
 
     while(*buffer)
     {
         if(OutputPos==0)
         {
-            while(*buffer && isspace(*buffer))
+            while(*buffer && isspace(*buffer)) // TODO: opt?
             {
                 if(*buffer=='\n')
                 {
                     /* For last line entry mode: gotoxy(1,BottomHeight); */
-                    printf("\n\r");
+                    print("\n\r"); // opt // printf("\n\r");
                     /* For last line entry mode: (1, wherey(), Width); */
                     OutputPos=0;
                 }
@@ -623,7 +645,7 @@ void OutBuf(char *buffer)
         if(*buffer==0)
             return;
         wp=0;
-        while(*buffer && !isspace(*buffer))
+        while(*buffer && !isspace(*buffer)) // TODO: opt?
         {
             word[wp++]=*buffer++;
         }
@@ -632,13 +654,13 @@ void OutBuf(char *buffer)
         if(OutputPos+strlen(word)>(Width-2))
         {
             /* For last line entry mode: gotoxy(1, BottomHeight); */
-            printf("\n\r");
+            print("\n\r"); // opt // printf("\n\r");
             /* For last line entry mode: cclearxy (1, wherey(), Width); */
             OutputPos=0;
         }
         else
             gotoxy(OutputPos+0, wherey());
-        printf("%s", word);
+        print(word); // opt // printf("%s", word);
         OutputPos+=strlen(word);
         if(*buffer==0)
             return;
@@ -646,7 +668,7 @@ void OutBuf(char *buffer)
         if(*buffer=='\n' || *buffer=='\r')
         {
             /* For last line entry mode: gotoxy(1,BottomHeight);*/
-            printf("\n\r");
+            print("\n\r"); // opt // printf("\n\r");
             /* For last line entry mode: cclearxy (1, wherey(), Width); */
             OutputPos=0;
         }
@@ -654,22 +676,22 @@ void OutBuf(char *buffer)
         {
             OutputPos++;
             if(OutputPos<(Width-1))
-                printf(" ");
+                print(" "); // opt //printf(" ");
         }
         buffer++;
     }
 }
 
-/* output petscii instead of raw ascii, s: 0-OutBuf, 1-printf */
-void OutputPetscii(char* a, int s)
+/* output petscii instead of raw ascii, s: 0-OutBuf, 1-print */
+void OutputPetscii(char* a, uint8_t s)
 {
     //char block[512]; // use global block buffer, this should probably be 256 for c64
-    int ct = 0;
+    uint8_t ct = 0;
 
     strcpy(block, a);
     do
     {
-        if(a[ct]==0 || ct >= 512)
+        if(a[ct]==0)
             break;
         block[ct] = a2p(block[ct]);
         ct++;
@@ -678,7 +700,7 @@ void OutputPetscii(char* a, int s)
     if(s==0)
         OutBuf(block);
     else
-        printf(block);
+        print(block);
 }
 
 void Output (char* a)
@@ -691,21 +713,22 @@ void Output (char* a)
 void OutputNumber(int a)
 {
     //char buf[16]; // use global block buffer
-    sprintf(block,"%d",a);
-    OutBuf(block);
+    // opt
+    //sprintf(block,"%d",a);
+    //OutBuf(block);
+    OutBuf((char *)bufnum32(a));
 }
 
-
-void Look(int cs)
+void Look(uint8_t cs) // opt // void Look(int cs)
 {
     static char *ExitNames[6]=
     {
         "North","South","East","West","Up","Down"
     };
     Room *r;
-    int ct,f;
-    int pos;
-    int xp,yp;
+    uint8_t ct,f; // opt // int ct,f;
+    uint8_t pos; // opt // int pos;
+    uint8_t xp,yp; // opt // int xp,yp;
 
     /* if clear screen is set, save x/y cursor for later, then clear */
     if(cs == 1) {
@@ -721,25 +744,36 @@ void Look(int cs)
             && Items[LIGHT_SOURCE].Location!= MyLoc)
     {
         if(Options&YOUARE)
-            printf("You can't see. It is too dark!\n\r");
+            print("You can't see. It is too dark!\n\r"); // opt // printf("You can't see. It is too dark!\n\r");
         else
-            printf("I can't see. It is too dark!\n\r");
+            print("I can't see. It is too dark!\n\r"); // opt // printf("I can't see. It is too dark!\n\r");
         gotoxy(xp,yp);  /* put the cursor back */
         return;
     }
     r=&Rooms[MyLoc];
     if(*r->Text=='*')
-        printf("%s\n\r",r->Text+1);
+    {
+        // printf("%s\n\r",r->Text+1); // opt
+        print(r->Text+1);
+        print("\n\r");
+    }
     else
     {
-        if(Options&YOUARE)
-            printf("You are %s\n\r",r->Text);
-        else
-            printf("I'm in a %s\n\r",r->Text);
+        if(Options&YOUARE) {
+            // opt // printf("You are %s\n\r",r->Text);
+            print("You are ");
+            print(r->Text);
+            print("\n\r"); 
+        } else {
+            // opt // printf("I'm in a %s\n\r",r->Text);
+            print("I'm in a ");
+            print(r->Text);
+            print("\n\r"); 
+        }
     }
     ct=0;
     f=0;
-    printf("\n\rObvious exits: ");
+    print("\n\rObvious exits: "); // opt // printf("\n\rObvious exits: ");
     while(ct<6)
     {
         if(r->Exits[ct]!=0)
@@ -747,14 +781,14 @@ void Look(int cs)
             if(f==0)
                 f=1;
             else
-                printf(", ");
-            printf("%s",ExitNames[ct]);
+                print(", "); // opt // printf(", ");
+            print(ExitNames[ct]); // opt // printf("%s",ExitNames[ct]);
         }
         ct++;
     }
     if(f==0)
-        printf("none");
-    printf(".\n\r");
+        print("none"); // opt // printf("none");
+    print(".\n\r"); // opt // printf(".\n\r");
     ct=0;
     f=0;
     pos=0;
@@ -765,29 +799,29 @@ void Look(int cs)
             if(f==0)
             {
                 if(Options&YOUARE)
-                    printf("\n\rYou can also see: ");
+                    print("\n\rYou can also see: ");// opt // printf("\n\rYou can also see: ");
                 else
-                    printf("\n\rI can also see: ");
+                    print("\n\rI can also see: "); // opt // printf("\n\rI can also see: ");
                 pos=16;
                 f++;
-            } 
-            else 
+            }
+            else
             {
-                printf(" - ");
+                print(" - "); // opt // printf(" - ");
                 pos+=3;
             }
             if(pos+strlen(Items[ct].Text)>(Width-5)) /* was 10 */
             {
                 pos=0;
-                printf("\n\r");
+                print("\n\r"); // opt // printf("\n\r");
             }
-            OutputPetscii(Items[ct].Text, 1); /* PETSCII, use printf */
+            OutputPetscii(Items[ct].Text, 1); /* PETSCII, use print */
             pos += strlen(Items[ct].Text);
         }
         ct++;
     }
     clreol();
-    printf("\n\r");
+    print("\n\r"); // opt // printf("\n\r"); 
     clreol();
 
     /* Put cursor back */
@@ -795,10 +829,11 @@ void Look(int cs)
         gotoxy(xp,yp);
 }
 
-int WhichWord(char *word, char **list)
+// opt // int WhichWord(char *word, char **list)
+int8_t WhichWord(char *word, char **list)
 {
-    int n=1;
-    int ne=1;
+    uint8_t n=1; // opt // int n=1;
+    uint8_t ne=1; // opt // int ne=1;
     char *tp;
 
     while(ne<=GameHeader.NumWords)
@@ -816,44 +851,40 @@ int WhichWord(char *word, char **list)
     return(-1);
 }
 
-/* mseelye - change text, border/bg colors on the C64 
-   Note: Using cc65's PEEK to get values from system.
-*/
-void ColorChange(int code) 
-{
-    int curT = 0;
-    int curD = 0;
-    int curB = 0;
-    int sh = 0;
+// mseelye - change text, border/bg colors on the C64 
+void ColorChange(uint8_t code) {
+    uint8_t curT = 0;
+    uint8_t curD = 0;
+    uint8_t curB = 0;
+    int8_t sh = 0;
     curT = textcolor(0); // get Current Text Color
     curD = PEEK(0xd020); // get Current Border Color
     curB = PEEK(0xd021); // get current BG Color
     sh = (code >= 0x89)?-1:1; // Shift pressed = -1, no shift = 1
 
-    switch (code)
-    {
-            case 0x85: // F1
-            case 0x89: // F2
-                curT += sh;
-                break;
-            case 0x86: // F3
-            case 0x8a: // F4
-                curD += sh;
-                break;
-            case 0x87: // F5
-            case 0x8b: // F6
-                curB += sh;
-                break;
-            case 0x88: // F7
-                curT = 0; // Black
-                curD = 11; // Grey
-                curB = 11; // Still Grey
-                break;
-            case 0x8c: // F8
-                curT = rand();
-                curD = rand();
-                curB = rand();
-                break;
+    switch (code) {
+        case 0x85: // F1
+        case 0x89: // F2
+            curT += sh;
+            break;
+        case 0x86: // F3
+        case 0x8a: // F4
+            curD += sh;
+            break;
+        case 0x87: // F5
+        case 0x8b: // F6
+            curB += sh;
+            break;
+        case 0x88: // F7
+            curT = 0; // Black
+            curD = 11; // Grey
+            curB = 11; // Still Grey
+            break;
+        case 0x8c: // F8
+            curT = rand();
+            curD = rand();
+            curB = rand();
+            break;
     }
     textcolor(curT & 15);
     bordercolor (curD & 15);
@@ -861,50 +892,52 @@ void ColorChange(int code)
     Look(1);
 }
 
-
-void LineInput(char *buf)
+void LineInput(char *buf, uint8_t max)
 {
-    int pos=0;
-    int ch;
+    uint8_t pos=0; // opt // int pos=0;
+    uint8_t ch; // opt // int ch;
     
     while(1)
     {
-        ch=(int)cgetc();
+        ch=(uint8_t)cgetc(); // opt // ch=(int)cgetc();
+        if(pos >= max-1)
+            ch=13; // auto end at max
         switch(ch)
         {
             case 10:;
             case 13:;
                 buf[pos]=0;
-                printf("\n\r");
+                print("\n\r"); // opt // printf("\n\r");
                 return;
             case 8:;
             case 20:; /* added c64 DEL */
             case 127:;
                 if(pos>0)
                 {
-                    printf("\010");
+                    print("\010"); // opt // printf("\010");
                     pos--;
                 }
                 break;
             default:
-                if(ch >= 0x85 && ch <= 0x8c)
+                if(ch >= 0x85 && ch <= 0x8c) // Fkeys
                      ColorChange(ch);
                 if(ch>=' '&&ch<=126)
                 {
                     buf[pos++]=ch;
-                    printf("%c",(char)ch);
+                    print_char(ch); // opt // printf("%c",(char)ch);
                 }
                 break;
         }
     }
 }
 
-void GetInput(int* vb,int* no)
+// void GetInput(int* vb,int* no) // opt
+void GetInput(int8_t* vb, int8_t* no)
 {
     char buf[80]; // can't use global block buffer, also reduced to 80 characters
     char verb[10],noun[10];
-    int vc=0,nc=0;
-    int num=0;
+    int8_t vc=0,nc=0; // int vc=0,nc=0;
+    int8_t num=0; // int num=0;
     do
     {
         do
@@ -913,16 +946,17 @@ void GetInput(int* vb,int* no)
             /* hack: refresh the top here after 
              * the c64 has moved everything around, ignores Redraw for now */
             Look(1);
-            LineInput(buf);
+            LineInput(buf, 80);
             OutReset();
-            num=sscanf(buf,"%9s %9s",verb,noun);
+            //num=sscanf(buf,"%9s %9s",verb,noun);
+            num=parseVerbNoun(buf, 9, verb, noun);
         }
         while(num<=0||*buf=='\n'); /* was num==0, sscanf returning -1 on none found? */
         if(num==1)
             *noun=0;
         if(*noun==0 && strlen(verb)==1)
         {
-            switch(isupper(*verb)?tolower(*verb):*verb)
+            switch(isupper(*verb)?tolower(*verb):*verb) // TODO: opt?
             {
                 case 'n':strcpy(verb,"NORTH");break;
                 case 'e':strcpy(verb,"EAST");break;
@@ -958,75 +992,95 @@ void GetInput(int* vb,int* no)
     strcpy(NounText,noun);    /* Needed by GET/DROP hack */
 }
 
+void cbm_write_value(uint8_t filenum, uint32_t value, char *end) {
+    char *num;
+    num = (char *)bufnum32(value);
+    cbm_write(filenum, (char *)num, num[11]); // hack buffer has size at + 11
+    cbm_write(filenum, end, 1);
+}
+
 void SaveGame()
 {
     char buf[32]; // can't use global block buffer, used to save last saved game file name
-    int ct=0;
-    FILE *f;
+    uint8_t ct=0;
+    uint8_t filenum=1;
+    uint8_t device=8; // TODO: current device?
+    char *sp=" ";
+    char *cr="\n";
     Output("Filename: ");
-    LineInput(buf);
+    LineInput(buf, 32);
     Output("\n");
-    f=fopen(buf,"w");
-    if(f==NULL)
-    {
+    if (cbm_open(filenum, device, 1, buf)) {
         Output("Unable to create save file.\n");
         return;
     }
     while(ct < 16)
     {
-        fprintf(f,"%d %d\n",Counters[ct],RoomSaved[ct]);
+        cbm_write_value(filenum, Counters[ct], sp);
+        cbm_write_value(filenum, RoomSaved[ct], cr);
         ct++;
     }
-    fprintf(f,"%ld %d %hd %d %d %hd\n",BitFlags, (BitFlags&(1L<<DARKBIT))?1:0,
-        MyLoc,CurrentCounter,SavedRoom,GameHeader.LightTime);
+    cbm_write_value(filenum, BitFlags, sp);
+    cbm_write_value(filenum, ((BitFlags&(1L<<DARKBIT))?1:0), sp);
+    cbm_write_value(filenum, MyLoc, sp);
+    cbm_write_value(filenum, CurrentCounter, sp);
+    cbm_write_value(filenum, SavedRoom, sp);
+    if(GameHeader.LightTime < 0) {
+        cbm_write(filenum, "-1\n", 3);
+    } else {
+        cbm_write_value(filenum, GameHeader.LightTime, cr);
+    }
+    
     ct=0;
     while(ct <= GameHeader.NumItems) {
-        fprintf(f,"%hd\n",(short)Items[ct].Location);
+        cbm_write_value(filenum, Items[ct].Location, cr);
         ct++;
     }
-    fclose(f);
+    cbm_close(filenum);
 
     SavedGame = buf; // static variables maintain values, sloppy cheat to keep saved game name
 
     Output("Saved.\n");
 }
 
-void LoadGame(char *name)
-{
-    FILE *f=fopen(name,"r");
-    int ct=0;
-    short lo;
-    /* short DarkFlag; */
-    int DarkFlag; /* mseelye - fscanf complains when reading mix of int and short*/
+void LoadGame(char *name) {
+    uint8_t ct=0;
+    uint8_t filenum=1;
+    uint8_t device=8; // TODO: current device?
+    uint8_t DarkFlag;
 
     SavedGame = name;
-    printf("\nLoading saved game '%s'..", SavedGame);
+    print("\nLoading saved game '");
+    print(SavedGame);
+    print("'..");
 
-    if(f==NULL)
-    {
-        Output("Unable to restore game.");
-        return;
-    }
-    
-    while(ct < 16)
-    {
-        fscanf(f,"%d %d\n",&Counters[ct],&RoomSaved[ct]);
+     if (cbm_open(filenum, device, 2, name)) {
+         Output("Unable to restore game.\n");
+         return;
+     }
+
+    while(ct < 16) {
+        Counters[ct] = cbm_read_next(filenum);
+        RoomSaved[ct] = cbm_read_next(filenum);
         ct++;
     }
-    fscanf(f,"%ld %d %hd %d %d %hd\n",
-        &BitFlags,&DarkFlag,&MyLoc,&CurrentCounter,&SavedRoom,
-        &GameHeader.LightTime);
+    BitFlags = cbm_read_next(filenum);
+    DarkFlag = cbm_read_next(filenum);
+    MyLoc = cbm_read_next(filenum);
+    CurrentCounter = cbm_read_next(filenum);
+    SavedRoom = cbm_read_next(filenum);
+    GameHeader.LightTime = (int8_t)cbm_read_next(filenum);
+
     /* Backward compatibility */
     if(DarkFlag)
         BitFlags|=(1L<<15);
     ct=0;
     while(ct <= GameHeader.NumItems)
     {
-        fscanf(f,"%hd\n",&lo);
-        Items[ct].Location=(unsigned char)lo;
+        Items[ct].Location=(unsigned char)cbm_read_next(filenum);;
         ct++;
     }
-    fclose(f);
+    cbm_close(filenum);
 }
 
 /* This restores state to the initial state so the 
@@ -1035,7 +1089,7 @@ void LoadGame(char *name)
  */
 void FreshGame()
 {
-    int ct=0;
+    uint8_t ct=0;
 
     /* clean up counters and room saved */
     while(ct < 16)
@@ -1073,16 +1127,17 @@ void NewGame()
     }
 }
 
-int PerformLine(int ct)
+// int PerformLine(int ct) // opt
+uint8_t PerformLine(uint8_t ct)
 {
-    int continuation=0;
-    int pptr=0;
-    int cc=0;
-    int act[4];
-    int param[5];
+    uint8_t continuation=0; // opt // int continuation=0;
+    uint8_t pptr=0; // opt // int pptr=0;
+    uint16_t cc=0; // opt // int cc=0;
+    uint16_t act[4]; // opt  // int act[4];
+    uint8_t param[5]; // opt // int param[5];
     while(cc<5)
     {
-        int cv,dv;
+        uint16_t cv,dv; // int cv,dv;
         cv=Actions[ct].Condition[cc];
         dv=cv/20;
         cv%=20;
@@ -1251,7 +1306,7 @@ int PerformLine(int ct)
             case 62:
             {
                 /* Bug fix for some systems - before it could get parameters wrong */
-                int i=param[pptr++];
+                uint8_t i=param[pptr++]; // opt // int i=param[pptr++];
                 Items[i].Location=param[pptr++];
                 Redraw=1;
                 break;
@@ -1259,7 +1314,8 @@ int PerformLine(int ct)
             case 63:
                 /* mseelye - just restart */
 doneit:         Output("The game is now over.\n");
-                getchar();
+                //getchar(); // TODO: opt?
+                sleep(5); // TEMP DEBUG
                 Restart=1;
                 break;
                 // exit(0) // mseelye - not needed, looping!
@@ -1268,8 +1324,8 @@ doneit:         Output("The game is now over.\n");
                 break;
             case 65:
             {
-                int ct=0;
-                int n=0;
+                uint8_t ct=0; // opt // int ct=0;
+                uint8_t n=0; // opt // int n=0;
                 while(ct<=GameHeader.NumItems)
                 {
                     if(Items[ct].Location==GameHeader.TreasureRoom &&
@@ -1294,8 +1350,8 @@ doneit:         Output("The game is now over.\n");
             }
             case 66:
             {
-                int ct=0;
-                int f=0;
+                uint8_t ct=0; // opt // int ct=0;
+                uint8_t f=0; // opt // int f=0;
                 if(Options&YOUARE)
                     Output("You are carrying:\n");
                 else
@@ -1341,9 +1397,9 @@ doneit:         Output("The game is now over.\n");
                 break;
             case 72:
             {
-                int i1=param[pptr++];
-                int i2=param[pptr++];
-                int t=Items[i1].Location;
+                uint8_t i1=param[pptr++]; // opt // int i1=param[pptr++];
+                uint8_t i2=param[pptr++]; // opt // int i2=param[pptr++];
+                uint8_t t=Items[i1].Location; // opt // int t=Items[i1].Location;
                 if(t==MyLoc || Items[i2].Location==MyLoc)
                     Redraw=1;
                 Items[i1].Location=Items[i2].Location;
@@ -1360,7 +1416,7 @@ doneit:         Output("The game is now over.\n");
                 break;
             case 75:
             {
-                int i1,i2;
+                uint8_t i1,i2; // opt // int i1,i2;
                 i1=param[pptr++];
                 i2=param[pptr++];
                 if(Items[i1].Location==MyLoc)
@@ -1385,7 +1441,7 @@ doneit:         Output("The game is now over.\n");
                 break;
             case 80:
             {
-                int t=MyLoc;
+                uint8_t t=MyLoc; // opt // int t=MyLoc;
                 MyLoc=SavedRoom;
                 SavedRoom=t;
                 Redraw=1;
@@ -1397,8 +1453,8 @@ doneit:         Output("The game is now over.\n");
                    seems to do select counter n, thing, select counter n,
                    but uses one value that always seems to exist. Trying
                    a few options I found this gave sane results on ageing */
-                int t=param[pptr++];
-                int c1=CurrentCounter;
+                uint8_t t=param[pptr++]; // opt // int t=param[pptr++];
+                uint16_t c1=CurrentCounter; // opt // int c1=CurrentCounter;
                 CurrentCounter=Counters[t];
                 Counters[t]=c1;
                 break;
@@ -1427,8 +1483,8 @@ doneit:         Output("The game is now over.\n");
             {
                 /* Changed this to swap location<->roomflag[x]
                    not roomflag 0 and x */
-                int p=param[pptr++];
-                int sr=MyLoc;
+                uint8_t p=param[pptr++]; // opt // int p=param[pptr++];
+                uint8_t sr=MyLoc; // opt // int sr=MyLoc;
                 MyLoc=RoomSaved[p];
                 RoomSaved[p]=sr;
                 Redraw=1;
@@ -1444,8 +1500,15 @@ doneit:         Output("The game is now over.\n");
                 /* Poking this into older spectrum games causes a crash */
                 break;
             default:
-                fprintf(stderr,"Unknown action %d [Param begins %d %d]\n",
-                    act[cc],param[pptr],param[pptr+1]);
+                // opt fprintf(stderr,"Unknown action %d [Param begins %d %d]\n", act[cc],param[pptr],param[pptr+1]);
+                // note: normally to error channel
+                print("Unknown action ");
+                print_number(act[cc]);
+                print(" [Param begins ");
+                print_number(param[pptr]);
+                print_char(' ');
+                print_number(param[pptr+1]);
+                print("]\n");
                 break;
         }
         cc++;
@@ -1454,14 +1517,15 @@ doneit:         Output("The game is now over.\n");
 }
 
 
-int PerformActions(int vb,int no)
+// int PerformActions(int vb,int no) // opt
+int8_t PerformActions(int8_t vb,int8_t no)
 {
-    static int disable_sysfunc=0;    /* Recursion lock */
-    int d=BitFlags&(1L<<DARKBIT);
+    static uint8_t disable_sysfunc=0; // opt // static int disable_sysfunc=0;    /* Recursion lock */
+    uint8_t d=BitFlags&(1L<<DARKBIT); // opt // int d=BitFlags&(1L<<DARKBIT);
     
-    int ct=0;
-    int fl;
-    int doagain=0;
+    uint8_t ct=0; // opt // int ct=0;
+    int8_t fl; // opt // int fl;
+    uint8_t doagain=0; // opt // int doagain=0;
     if(vb==1 && no == -1 )
     {
         Output("Give me a direction too.\n");
@@ -1469,7 +1533,7 @@ int PerformActions(int vb,int no)
     }
     if(vb==1 && no>=1 && no<=6)
     {
-        int nl;
+        uint8_t nl; // opt // int nl;
         if(Items[LIGHT_SOURCE].Location==MyLoc ||
            Items[LIGHT_SOURCE].Location==CARRIED)
                d=0;
@@ -1489,7 +1553,8 @@ int PerformActions(int vb,int no)
             else
                 Output("I fell down and broke my neck.\n");
             //sleep(5); - just use a getchar() for now;
-            getchar();
+            //getchar(); // TODO: opt?
+            sleep(6); // TEMp DEBUG
             Restart=1;
             return(0);
             // exit(0); - mseelye added restart logic to light death
@@ -1503,7 +1568,7 @@ int PerformActions(int vb,int no)
     fl= -1;
     while(ct<=GameHeader.NumActions)
     {
-        int vv,nv;
+        uint16_t vv,nv; // opt // int vv,nv;
         vv=Actions[ct].Vocab;
         /* Think this is now right. If a line we run has an action73
            run all following lines with vocab of 0,0 */
@@ -1519,7 +1584,7 @@ int PerformActions(int vb,int no)
             if((vv==0 && RandomPercent(nv))||doagain||
                 (vv!=0 && (nv==no||nv==0)))
             {
-                int f2;
+                uint8_t f2; // opt // int f2;
                 if(fl== -1)
                     fl= -2;
                 if((f2=PerformLine(ct))>0)
@@ -1539,7 +1604,7 @@ int PerformActions(int vb,int no)
     }
     if(fl!=0 && disable_sysfunc==0)
     {
-        int i;
+        int8_t i; // opt // int i;
         if(Items[LIGHT_SOURCE].Location==MyLoc ||
            Items[LIGHT_SOURCE].Location==CARRIED)
                d=0;
@@ -1550,8 +1615,8 @@ int PerformActions(int vb,int no)
             {
                 if(strcasecmp(NounText,"ALL")==0)
                 {
-                    int ct=0;
-                    int f=0;
+                    uint8_t ct=0; // opt // int ct=0;
+                    uint8_t f=0; // opt // int f=0;
                     
                     if(d)
                     {
@@ -1617,8 +1682,8 @@ int PerformActions(int vb,int no)
             {
                 if(strcasecmp(NounText,"ALL")==0)
                 {
-                    int ct=0;
-                    int f=0;
+                    uint8_t ct=0; // opt // int ct=0;
+                    uint8_t f=0; // opt // int f=0;
                     while(ct<=GameHeader.NumItems)
                     {
                         if(Items[ct].Location==CARRIED && Items[ct].AutoGet && Items[ct].AutoGet[0]!='*')
@@ -1663,11 +1728,13 @@ int PerformActions(int vb,int no)
     return(fl);
 }
 
-int main(int argc, char *argv[])
+// int main(int argc, char *argv[]) // opt
+uint8_t main(uint8_t argc, char *argv[])
 {
-    FILE *f;
-    int vb=0,no=0;
-    short chk[3] = {0,0,0};
+    //FILE *f; // TODO opt?
+    uint8_t filenum = 1;
+    int8_t vb=0,no=0; // opt // int vb=0,no=0;
+    uint16_t chk[3] = {0,0,0};
 
     while(argv[1])
     {
@@ -1695,14 +1762,20 @@ int main(int argc, char *argv[])
                 break;
             case 'h':
             default:
-                fprintf(stderr,"%s: [-h] [-y] [-s] [-i] [-d] [-p] [-r] <gamename> [savedgame].\n\r",argv[0]);
-                fprintf(stderr," -h:help\n\r -y:'you are'\n\r -s:scottlight\n\r -i:'i am'\n\r -d:debug\n\r -p:old lamp behavior\n\r -r:restore recent save on restart\n\r gamename:required\n\r savedgame:optional\n\r");
+                // opt // fprintf(stderr,"%s: [-h] [-y] [-s] [-i] [-d] [-p] [-r] <gamename> [savedgame].\n\r",argv[0]);
+                // opt // fprintf(stderr," -h:help\n\r -y:'you are'\n\r -s:scottlight\n\r -i:'i am'\n\r -d:debug\n\r -p:old lamp behavior\n\r -r:restore recent save on restart\n\r gamename:required\n\r savedgame:optional\n\r");
+                print(argv[0]);
+                print(": [-h] [-y] [-s] [-i] [-d] [-p] [-r] <gamename> [savedgame].\n\r");
+                print(" -h:help\n\r -y:'you are'\n\r -s:scottlight\n\r -i:'i am'\n\r -d:debug\n\r -p:old lamp behavior\n\r -r:restore recent save on restart\n\r gamename:required\n\r savedgame:optional\n\r");
                 exit(1);
         }
         if(argv[1][2]!=0)
         {
-            fprintf(stderr,"%s: option -%c does not take a parameter.\n\r",
-                argv[0],argv[1][1]);
+            // opt // fprintf(stderr,"%s: option -%c does not take a parameter.\n\r", argv[0],argv[1][1]);
+            print(argv[0]);
+            print(": option -");
+            print_char(argv[1][1]);
+            print("does not take a parameter.\n\r");
             exit(1);
         }
         argv++;
@@ -1711,13 +1784,15 @@ int main(int argc, char *argv[])
 
     if(argc!=2 && argc!=3)
     {
-        fprintf(stderr,"run:rem <db file> <save file>\n\r");
+        // opt // fprintf(stderr,"run:rem <db file> <save file>\n\r");
+        print("run:rem <db file> <save file>\n\r");
         exit(1);
     }
-    f=fopen(argv[1],"r");
-    if(f==NULL)
-    {
-        perror(argv[1]);
+    // TODO: device
+    if (cbm_open(filenum, 8, 2, argv[1])) {
+        print("Unable to load \"");
+        print(argv[1]);
+        print_char('\"');
         exit(1);
     }
 
@@ -1733,27 +1808,44 @@ int main(int argc, char *argv[])
     bordercolor (11); // Dark Grey
 
     /* cleaned up for 40 cols */
-    printf("ScottFree64 {VERSION}, A c64 port of:\
+    print("ScottFree64 {VERSION}, A c64 port of:\
 ScottFree, Scott Adams game driver in C\
 Release 1.14b(PC), (c) 1993,1994,1995\
 Swansea University Computer Society.\
-Distributed under the GNU software\nlicense\n\nMemFree(%zu)\n", _heapmemavail ());
+Distributed under the GNU software\nlicense\n\n");
+    print("MemFree(");
+    print_number(_heapmemavail());
+    print(")\n");
 
-    // check start of file, if count is 0 it is likely a binary file
-    vb = fscanf(f,"%hd %hd %hd", &chk[0], &chk[1], &chk[2]);
-    f = freopen(argv[1], "r", f); // reopen now, no fseek on c64 for cc65.. augh
-    //printf("%d : %d %d %d", vb, chk[0], chk[1], chk[2]);
-    if(vb==0) {
-        printf("BDAT\n");
-        LoadDatabaseBinary(f,(Options&DEBUGGING)?1:0); // load Binary DAT file
+    chk[0] = cbm_read_next(filenum);
+    chk[1] = cbm_read_next(filenum);
+    chk[2] = cbm_read_next(filenum);
+    cbm_close(filenum);
+    print("chk:");
+    print_number(chk[0]);
+    print_char(',');
+    print_number(chk[1]);
+    print_char(',');
+    print_number(chk[2]);
+    print_char('\n');
+    
+    
+    if(chk[0]==0 && chk[1]==0 && chk[2]==0) {
+        print("BDAT\n");
+        LoadDatabaseBinary(argv[1],(Options&DEBUGGING)?1:0); // load Binary DAT file
     } else {
-        printf("DAT\n");
-        LoadDatabase(f,(Options&DEBUGGING)?1:0);  // load DAT file
+        print("DAT\n");
+        LoadDatabase(argv[1],(Options&DEBUGGING)?1:0);  // load DAT file
     }
-    fclose(f);
     if(argc==3)
         LoadGame(argv[2]);
-    srand(time(NULL));
+    srand((PEEK(0x00a2) << 8) | (PEEK(0xd012)));// opt //srand(time(NULL));
+
+    print("MemFree(");
+    print_number(_heapmemavail());
+    print(")\n");
+
+    //getchar();
 
     textcolor (0);
     bgcolor (11);

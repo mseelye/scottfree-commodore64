@@ -83,19 +83,24 @@ DIST = $(DISTDIR)/$(TARGET)
 #GAMES   := ghostking.dat sampler1.dat
 GAMES   := ghostking.dat sampler1.dat ghostking.bdat sampler1.bdat
 SOURCES  := $(wildcard $(SRCDIR)/*.c)
+ASMSOURCES  := $(wildcard $(SRCDIR)/*.s)
 INCLUDES := $(wildcard $(SRCDIR)/*.h)
 OBJECTS  := $(SOURCES:$(SRCDIR)/%.c=$(OBJDIR)/%.o)
-ASMS  := $(SOURCES:$(SRCDIR)/%.c=$(OBJDIR)/%.o)
+ASMOBJECTS  := $(ASMSOURCES:$(SRCDIR)/%.s=$(OBJDIR)/%.o)
 
-all: directories $(BINDIR)/$(TARGET) readme disk disk81
+all: directories $(BINDIR)/$(TARGET) readme disk
+# disk81
+
+.PHONY: target
+target: $(BINDIR)/$(TARGET)
 
 %: %.c
 %: %.s
 
 # Link main target
-$(BINDIR)/$(TARGET): $(OBJECTS)
+$(BINDIR)/$(TARGET): $(OBJECTS) $(ASMOBJECTS)
 	@$(ECHO) "*** Linking $<"
-	$(LD) $(LDFLAGS) -o $@ -t $(SYS) -m $@.map $(OBJECTS) $(SYS).lib
+	$(LD) $(LDFLAGS) -o $@ -t $(SYS) -m $@.map $(OBJECTS) $(ASMOBJECTS) $(SYS).lib
 ifeq ("",$(CRUNCHER))
 	@$(ECHO) "*** Note: $(CRUNCHER_EXE) is not in PATH, cannot crunch $@, $(CRUNCHER_CONSIDER)"
 else
@@ -109,9 +114,16 @@ $(OBJECTS): $(OBJDIR)/%.o : $(SRCDIR)/%.c $(INCLUDES)
 	@cat $< | sed -e "$(DIST_SED)" > $<.tmp
 	$(CC) $(CFLAGS) $<.tmp
 	$(AS) $<.s -o $@
-#	$(AS) $(<:.c =.s) -o $@
 	@$(ECHO) "*** Compilation complete\n"
 	@rm $<.tmp $<.s
+
+# Assemble optimization library
+$(ASMOBJECTS): $(OBJDIR)/%.o : $(SRCDIR)/%.s $(INCLUDES)
+	@$(ECHO) "*** Assembling $<"
+	@cat $< | sed -e "$(DIST_SED)" > $<.tmp
+	$(AS) $<.tmp -o $@
+	@$(ECHO) "*** Assembly complete\n"
+	@rm $<.tmp
 
 # petcat BASIC stub/readme program
 # petcat -ic -w2 -o readme2.prg -- readme.txt
