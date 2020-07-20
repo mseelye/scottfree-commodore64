@@ -21,6 +21,7 @@
 uint8_t __fastcall__ print(char *text);
 void __fastcall__ print_char(char c);
 uint8_t __fastcall__ print_number(uint32_t);
+uint8_t __fastcall__ print_signed_8(int8_t);
 
 uint16_t __fastcall__ bufnum8(uint8_t);
 uint16_t __fastcall__ bufnum16(uint16_t);
@@ -31,6 +32,8 @@ void __fastcall__ a2p_string (unsigned char *, uint8_t);
 
 uint8_t __fastcall__ parseVerbNoun(char *buf, uint8_t wl, char *verb, char *noun);
 uint8_t __fastcall__ nextWord(char *buf, uint8_t wl, char *word);
+
+uint8_t __fastcall__ isspace(uint8_t c);
 
 uint16_t __fastcall__ getsp(void);
 

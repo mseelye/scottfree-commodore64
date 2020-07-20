@@ -1,20 +1,26 @@
 /*
  *  ScottFree-64 - a Reworking of ScottFree Revision 1.14b for the Commodore 64
  *  (C) 2020 - Mark Seelye / mseelye@yahoo.com
- *  Version 2.0.1
+ *  Version 2.0.2
  *  Heavier cbm optimizations.
+ *  C128 and 80 Column Mode
  *
  *  Requires: cc65 dev environment, build essentials (make)
  *  Optional: 
  *     Vice tooling for c1541 (making the disk images), petcat (basic stub)
  *
- *  build with:
+ *  build c64 version with:
  *    make clean all
  *
+ *  build c128 version with:
+ *    SYS=c128 make clean all
+ *
  *  Run with:
- *    Your Commodore 64! (Or VICE)
+ *    Your Commodore 64 or Commodore 128! (Or VICE, x64, x64sc, x128)
  *    Once you load the binary with 
-        load "scottfree64",8,1
+ *      load "scottfree64",8,1
+ *     Or on the c128:
+ *      load "scottfree128",8,1
  *    You use cc65's argument passing like:
  *      run:rem -d myfavgame.dat mysavegame
  *    The BASIC stub has information on how to load run it.
@@ -40,32 +46,28 @@
  *  Original copyright and license for ScottFree Revision 1.14b follows:
  */
 /*
- *	ScottFree Revision 1.14b
+ *    ScottFree Revision 1.14b
  *
  *
- *	This program is free software; you can redistribute it and/or
- *	modify it under the terms of the GNU General Public License
- *	as published by the Free Software Foundation; either version
- *	2 of the License, or (at your option) any later version.
+ *    This program is free software; you can redistribute it and/or
+ *    modify it under the terms of the GNU General Public License
+ *    as published by the Free Software Foundation; either version
+ *    2 of the License, or (at your option) any later version.
  *
  *
- *	You must have an ANSI C compiler to build this program.
+ *    You must have an ANSI C compiler to build this program.
  */
 
-#include <stdio.h>
-#include <string.h>
-#include <stdlib.h>
-#include <ctype.h>
-#include <conio.h>
-#include <unistd.h>
+#include <string.h>   // strcpy, strncasecmp, memcpy, strchr, strcmp, strlen, strcasecmp
+#include <stdlib.h>   // exit, malloc, rand, atol, free, _heapmemavail, srand
+#include <conio.h>    // cgetc, clrscr, gotoxy, cclearxy, wherex, wherey, textcolor, bordercolor
+#include <cbm.h>      // cbm_read, cbm_open, cbm_close
+#include <unistd.h>   // sleep
+#include <stdint.h>   // [u]int[8|16|32]_t (also included with one of the above^)
 
+#include "scottfree64.h"
 #include "scottfree.h"
 #include "sf64.h"
-#include <stdint.h>
-
-#ifndef PEEK
-    #define PEEK(addr)         (*(unsigned char*) (addr))
-#endif
 
 Header GameHeader;
 Item *Items;
@@ -90,7 +92,12 @@ int TopHeight = 0;          // Height of top window
 int InitialPlayerRoom = 0;  // added to help with restarting w/o reloading see: NewGame()
 char block[512];            // global buffer, used by multiple functions for temp storage
 
-#define RESTORE_SAVED_ON_RESTART 32 // new option that autoloads saved game on restart
+// c128 shadow values so don't have to do VDC hoops in 80col mode
+#if defined(__C128__)
+    uint8_t currentTextcolor = COLOR_BLACK;
+    uint8_t currentBorderColor = COLOR_BLACK;
+    uint8_t currentBackgroundColor = COLOR_BLACK;
+#endif
 
 #define MyLoc    (GameHeader.PlayerRoom)
 
@@ -103,15 +110,13 @@ void Fatal(char *x) {
     exit(1);
 }
 
-// TODO: asm opt
 void ClearScreen(void) {
     clrscr();
     gotoxy(0,0);
 }
 
-// TODO: asm opt
 void ClearTop(void) {
-    uint8_t ct=0; // opt //int ct=0;
+    uint8_t ct=0;
     
     while(ct < TopHeight) {
         cclearxy (0, ct++, Width);
@@ -121,7 +126,6 @@ void ClearTop(void) {
 void *MemAlloc(uint16_t size) {
     void *t=(void *)malloc(size);
     if(t==NULL) {
-        // printf("malloc(%d) failed: ", size); // opt
         print("malloc failed, size: ");
         print_number(size);
         Fatal("Out of memory");
@@ -129,18 +133,20 @@ void *MemAlloc(uint16_t size) {
     return(t);
 }
 
-// TODO: This needs to be fixed,
-//       it steps % changes 1-4=%4 5-8:%7  9-12:%10 etc
-uint8_t RandomPercent(uint16_t n) {
-    uint16_t rv=rand()<<6; // wtf is this?
-    rv%=100;
-    if(rv<n) {
-        return(1);
+// 1.14 steps random %: 1-4=%4 5-8:%7  9-12:%10 etc
+// Updated to be more like Java version 1.18.
+uint8_t RandomPercent(uint8_t percent) {
+    int16_t val = rand() % 100;
+    // the srand code in cc65 surpresses the sign bit, but just in case that changes
+    if(val < 0) {
+        val = -val;
     }
-    return(0);
+    if (val >= (uint16_t)percent) {
+        return(0);
+    }
+    return(1);
 }
 
-// TODO: asm opt
 uint8_t CountCarried() {
     uint8_t ct=0;
     uint8_t n=0;
@@ -153,7 +159,6 @@ uint8_t CountCarried() {
     return(n);
 }
 
-// TODO: asm opt
 char *MapSynonym(char *word) {
     uint8_t n=1;
     char *tp;
@@ -174,16 +179,16 @@ char *MapSynonym(char *word) {
 }
 
 // TODO: asm opt
-int8_t MatchUpItem(char *text, int loc) {
+int8_t MatchUpItem(char *text, uint8_t loc) {
     char *word=MapSynonym(text);
-    uint8_t ct=0; // opt // int ct=0;
+    uint8_t ct=0;
     
     if(word==NULL) {
         word=text;
     }
     
     while(ct<=GameHeader.NumItems) {
-        if(Items[ct].AutoGet && Items[ct].Location==loc &&
+        if(Items[ct].AutoGet && (uint8_t)Items[ct].Location==loc &&
             strncasecmp(Items[ct].AutoGet,word,GameHeader.WordLength)==0) {
             return(ct);
         }
@@ -202,11 +207,9 @@ uint32_t cbm_read_next(uint8_t filenum) {
     do {
         t = cbm_read(filenum, &c, 1);
     } while(t > 0 && isspace((int)c));
-    if(t<0) {
-        Fatal("Error reading data");
-    }
-    if(t==0) {
-        Fatal("Unexpected EOF while reading data");
+    if(t<=0) {
+        print_signed_8(t);
+        Fatal(" Error reading data");
     }
     buf[ct++]=c; // first usable character after any whitespace
     do {
@@ -263,10 +266,12 @@ char* ReadString (uint8_t filenum, uint8_t ca2p) {
         if(c==0x60) {
             c='"';
         }
+#if defined(__c64__)
         if(c=='\n') {
             block[ct++]=c;
             c='\r';
         }
+#endif
         if(ca2p==1) {
             c=a2p(c);
         }
@@ -287,154 +292,6 @@ void DebugMessage(uint8_t loud, char *msg, uint8_t num) {
     }
 }
 
-// Load Standard DAT File
-void LoadDatabase (char *filename, uint8_t loud) {
-    uint8_t ct=0;
-    uint8_t filenum=1;
-    uint8_t device=8; // cbm // TODO: fix this.. wtf is wrong with $ba
-    uint8_t lo;
-    Action *ap;
-    Room *rp;
-    Item *ip;
-
-    // Open File
-     if (cbm_open(filenum, device, 2, filename)) {
-         Fatal("File error!");
-     }
-
-    GameHeader.Unknown=cbm_read_next(filenum);
-    GameHeader.NumItems=cbm_read_next(filenum);
-    GameHeader.NumActions=cbm_read_next(filenum);
-    GameHeader.NumWords=cbm_read_next(filenum);
-    GameHeader.NumRooms=cbm_read_next(filenum);
-    GameHeader.MaxCarry=cbm_read_next(filenum);
-    GameHeader.PlayerRoom=cbm_read_next(filenum);
-    GameHeader.Treasures=cbm_read_next(filenum);
-    GameHeader.WordLength=cbm_read_next(filenum);
-    GameHeader.LightTime=cbm_read_next(filenum);
-    GameHeader.NumMessages=cbm_read_next(filenum);
-    GameHeader.TreasureRoom=cbm_read_next(filenum);
-    InitialPlayerRoom=GameHeader.PlayerRoom;   // mseelye - added this to help with restarting adventure w/o reloading.
-    LightRefill=GameHeader.LightTime;
-    
-    Items=(Item *)MemAlloc(sizeof(Item)*(GameHeader.NumItems+1));
-    Actions=(Action *)MemAlloc(sizeof(Action)*(GameHeader.NumActions+1));
-    Verbs=(char **)MemAlloc(sizeof(char *)*(GameHeader.NumWords+1));
-    Nouns=(char **)MemAlloc(sizeof(char *)*(GameHeader.NumWords+1));
-    Rooms=(Room *)MemAlloc(sizeof(Room)*(GameHeader.NumRooms+1));
-    Messages=(char **)MemAlloc(sizeof(char *)*(GameHeader.NumMessages+1));
-
-    ct=0;
-    ap=Actions;
-    DebugMessage(loud, "actions", GameHeader.NumActions+1);
-    while(ct < GameHeader.NumActions+1) {
-        ap->Vocab=(short)cbm_read_next(filenum);
-        ap->Condition[0]=(short)cbm_read_next(filenum);
-        ap->Condition[1]=(short)cbm_read_next(filenum);
-        ap->Condition[2]=(short)cbm_read_next(filenum);
-        ap->Condition[3]=(short)cbm_read_next(filenum);
-        ap->Condition[4]=(short)cbm_read_next(filenum);
-        ap->Action[0]=(short)cbm_read_next(filenum);
-        ap->Action[1]=(short)cbm_read_next(filenum);
-        if(loud) {
-            print_char('.');
-        }
-        ap++;
-        ct++;
-    }
-
-    ct=0;
-    DebugMessage(loud, "pairs", GameHeader.NumWords+1);
-    while(ct<GameHeader.NumWords+1) {
-        Verbs[ct]=ReadString(filenum,0);
-        Nouns[ct]=ReadString(filenum,0);
-        ct++;
-        if(loud) {
-            print_char('.');
-        }
-    }
-
-    ct=0;
-    rp=Rooms;
-    DebugMessage(loud, "rooms", GameHeader.NumRooms+1);
-    while(ct<GameHeader.NumRooms+1) {
-        rp->Exits[0]=(short)cbm_read_next(filenum);
-        rp->Exits[1]=(short)cbm_read_next(filenum);
-        rp->Exits[2]=(short)cbm_read_next(filenum);
-        rp->Exits[3]=(short)cbm_read_next(filenum);
-        rp->Exits[4]=(short)cbm_read_next(filenum);
-        rp->Exits[5]=(short)cbm_read_next(filenum);
-        rp->Text=ReadString(filenum,1);
-        ct++;
-        rp++;
-        if(loud) {
-            print_char('.');
-        }
-    }
-
-    ct=0;
-    DebugMessage(loud, "messages", GameHeader.NumMessages+1);
-    while(ct<GameHeader.NumMessages+1) {
-        Messages[ct]=ReadString(filenum,1);
-        ct++;
-        if(loud) {
-            print_char('.');
-        }
-    }
-
-    ct=0;
-    DebugMessage(loud, "items", GameHeader.NumItems+1);
-    ip=Items;
-    while(ct<GameHeader.NumItems+1) {
-        ip->Text=ReadString(filenum,0);
-        ip->AutoGet=strchr(ip->Text,'/'); // TODO: opt?
-        // Some games use // to mean no auto get/drop word!
-        if(ip->AutoGet && strcmp(ip->AutoGet,"//") && strcmp(ip->AutoGet,"/*"))
-        {
-            char *t;
-            *ip->AutoGet++=0;
-            t=strchr(ip->AutoGet,'/'); // TODO: opt?
-            if(t!=NULL)
-                *t=0;
-        }
-        lo=cbm_read_next(filenum);
-        ip->Location=(unsigned char)lo;
-        ip->InitialLoc=ip->Location;
-        ip++;
-        ct++;
-        if(loud) {
-            print_char('.');
-        }
-    }
-    
-    ct=0;
-    while(ct<GameHeader.NumActions+1)
-    {
-        free(ReadString(filenum,0)); // Discard Comment Strings
-        ct++;
-        if(loud) {
-            print_char('.');
-        }
-    }
-
-    if(loud) {
-        uint16_t adv = 0;
-        adv=cbm_read_next(filenum);
-        print("\nv");
-        print_number(adv/100);
-        print_char('.');
-        print_number(adv%100);
-        print(" of Adv. ");
-        adv=cbm_read_next(filenum);
-        print_number(adv);
-        // skip magic number
-        //adv=cbm_read_next(filenum);
-        print("\nDone!\n");
-    }
-
-    cbm_close(filenum);
-}
-
 // Load Binary DAT String
 uint8_t *LoadString(filenum) {
     uint8_t *string;
@@ -450,20 +307,56 @@ uint8_t *LoadString(filenum) {
     return(string);
 }
 
-// Load Binary DAT File
-void LoadDatabaseBinary (char *filename, uint8_t loud) {
+uint8_t DetectMode(char *filename) {
+    uint8_t filenum = 1;
+    uint8_t device=PEEK(CBM_CURRENT_DEVICE_NUMBER);
+    uint16_t chk[3] = {0,0,0};
+    if (cbm_open(filenum, device, CBM_READ, filename)) {
+        print("Unable to load \"");
+        print(filename);
+        print_char('\"');
+        exit(1);
+    }
+    // Detect ascii or binary
+    // Close and reopen in LoadDatabase call
+    chk[0] = cbm_read_next(filenum);
+    chk[1] = cbm_read_next(filenum);
+    chk[2] = cbm_read_next(filenum);
+    cbm_close(filenum);
+    return( (chk[0]==0 && chk[1]==0 && chk[2]==0)?0:1 );
+}
+
+// Load Binary DAT or DAT File
+void LoadDatabase(char *filename, uint8_t loud) {
     uint8_t ct=0;
     uint8_t filenum=1;
-    uint8_t device=8; // TODO: get current device!
+    uint8_t device=PEEK(CBM_CURRENT_DEVICE_NUMBER);
+    uint8_t mode=0;
     Action *ap;
     Room *rp;
     Item *ip;
 
-    if (cbm_open(filenum, device, 2, filename)) {
-        Fatal("File error!");
-    }
+    mode = DetectMode(filename);
+    cbm_open(filenum, device, CBM_READ, filename);
 
-    cbm_read(filenum, &GameHeader.Unknown, sizeof(GameHeader));
+    if(mode == 0) {
+        print("BDAT\n");
+        cbm_read(filenum, &GameHeader.Unknown, sizeof(GameHeader));
+    } else {
+        print("DAT\n");
+        GameHeader.Unknown=cbm_read_next(filenum);
+        GameHeader.NumItems=cbm_read_next(filenum);
+        GameHeader.NumActions=cbm_read_next(filenum);
+        GameHeader.NumWords=cbm_read_next(filenum);
+        GameHeader.NumRooms=cbm_read_next(filenum);
+        GameHeader.MaxCarry=cbm_read_next(filenum);
+        GameHeader.PlayerRoom=cbm_read_next(filenum);
+        GameHeader.Treasures=cbm_read_next(filenum);
+        GameHeader.WordLength=cbm_read_next(filenum);
+        GameHeader.LightTime=cbm_read_next(filenum);
+        GameHeader.NumMessages=cbm_read_next(filenum);
+        GameHeader.TreasureRoom=cbm_read_next(filenum);
+    }
     InitialPlayerRoom=GameHeader.PlayerRoom;
     LightRefill=GameHeader.LightTime;
 
@@ -479,7 +372,18 @@ void LoadDatabaseBinary (char *filename, uint8_t loud) {
     ap=Actions;
     DebugMessage(loud, "actions", GameHeader.NumActions+1);
     while(ct < GameHeader.NumActions+1) {
-        cbm_read(filenum, ap, sizeof(Action));
+        if(mode==0) {
+            cbm_read(filenum, ap, sizeof(Action));
+        } else {
+            ap->Vocab=(short)cbm_read_next(filenum);
+            ap->Condition[0]=(short)cbm_read_next(filenum);
+            ap->Condition[1]=(short)cbm_read_next(filenum);
+            ap->Condition[2]=(short)cbm_read_next(filenum);
+            ap->Condition[3]=(short)cbm_read_next(filenum);
+            ap->Condition[4]=(short)cbm_read_next(filenum);
+            ap->Action[0]=(short)cbm_read_next(filenum);
+            ap->Action[1]=(short)cbm_read_next(filenum);
+        }
         ct++;
         ap++;
         if(loud) {
@@ -490,8 +394,13 @@ void LoadDatabaseBinary (char *filename, uint8_t loud) {
     ct=0;
     DebugMessage(loud, "pairs", GameHeader.NumWords+1);
     while(ct < GameHeader.NumWords+1) {
-        Verbs[ct] = LoadString(filenum);
-        Nouns[ct] = LoadString(filenum);
+        if(mode==0) {
+            Verbs[ct]=LoadString(filenum);
+            Nouns[ct]=LoadString(filenum);
+        } else {
+            Verbs[ct]=ReadString(filenum,0);
+            Nouns[ct]=ReadString(filenum,0);
+        }
         ct++;
         if(loud) {
             print_char('.');
@@ -502,9 +411,19 @@ void LoadDatabaseBinary (char *filename, uint8_t loud) {
     rp=Rooms;
     DebugMessage(loud, "rooms", GameHeader.NumRooms+1);
     while(ct < GameHeader.NumRooms+1) {
-        cbm_read(filenum, rp->Exits, 6 * sizeof(uint16_t));
-        rp->Text = LoadString(filenum);
-        a2p_string(rp->Text, 0);
+        if(mode==0) {
+            cbm_read(filenum, rp->Exits, 6 * sizeof(uint16_t));
+            rp->Text = LoadString(filenum);
+            a2p_string(rp->Text, 0);
+        } else {
+            rp->Exits[0]=(short)cbm_read_next(filenum);
+            rp->Exits[1]=(short)cbm_read_next(filenum);
+            rp->Exits[2]=(short)cbm_read_next(filenum);
+            rp->Exits[3]=(short)cbm_read_next(filenum);
+            rp->Exits[4]=(short)cbm_read_next(filenum);
+            rp->Exits[5]=(short)cbm_read_next(filenum);
+            rp->Text=ReadString(filenum,1);
+        }
         ct++;
         rp++;
         if(loud) {
@@ -515,8 +434,12 @@ void LoadDatabaseBinary (char *filename, uint8_t loud) {
     ct=0;
     DebugMessage(loud, "messages", GameHeader.NumMessages+1);
     while(ct < GameHeader.NumMessages+1) {
-        Messages[ct]=LoadString(filenum);
-        a2p_string(Messages[ct], 0);
+        if(mode==0) {
+            Messages[ct]=LoadString(filenum);
+            a2p_string(Messages[ct], 0);
+        } else {
+            Messages[ct]=ReadString(filenum,1);
+        }
         ct++;
         if(loud) {
             print_char('.');
@@ -527,14 +450,31 @@ void LoadDatabaseBinary (char *filename, uint8_t loud) {
     ip=Items;
     DebugMessage(loud, "items", GameHeader.NumItems+1);
     while(ct < GameHeader.NumItems+1) {
-        ip->Text=LoadString(filenum);
-        ip->AutoGet=LoadString(filenum);
-        // SF likes Autoget to be NULL not empty
-        if (ip->AutoGet[0]==0) {
-            free(ip->AutoGet);
-            ip->AutoGet = NULL;
+        if(mode==0) {
+            ip->Text=LoadString(filenum);
+            ip->AutoGet=LoadString(filenum);
+            // SF likes Autoget to be NULL not empty
+            if (ip->AutoGet[0]==0) {
+                free(ip->AutoGet);
+                ip->AutoGet = NULL;
+            }
+            cbm_read(filenum, &ip->Location, 1);
+        } else {
+            uint8_t lo=0;
+            ip->Text=ReadString(filenum,0);
+            ip->AutoGet=strchr(ip->Text,'/');
+            // Some games use // to mean no auto get/drop word!
+            if(ip->AutoGet && strcmp(ip->AutoGet,"//") && strcmp(ip->AutoGet,"/*")) {
+                char *t;
+                *ip->AutoGet++=0;
+                t=strchr(ip->AutoGet,'/');
+                if(t!=NULL) {
+                    *t=0;
+                }
+            }
+            lo=cbm_read_next(filenum);
+            ip->Location=(unsigned char)lo;
         }
-        cbm_read(filenum, &ip->Location, 1);
         ip->InitialLoc=ip->Location;
         ct++;
         ip++;
@@ -546,7 +486,11 @@ void LoadDatabaseBinary (char *filename, uint8_t loud) {
     /* Discard Comment Strings */
     ct=0;
     while(ct < GameHeader.NumActions+1) {
+        if(mode==0) {
         free(LoadString(filenum)); // load it and free it
+        } else {
+            free(ReadString(filenum,0)); // Discard Comment Strings
+        }
         ct++;
         if(loud) {
             print_char('.');
@@ -555,26 +499,31 @@ void LoadDatabaseBinary (char *filename, uint8_t loud) {
 
     if(loud) {
         uint16_t adv = 0;
-        cbm_read(filenum, &adv, 2);
+        uint16_t v = 0;
+        if(mode==0) {
+            cbm_read(filenum, &v, 2);
+            cbm_read(filenum, &adv, 2);
+        } else {
+            adv=cbm_read_next(filenum);
+            v=cbm_read_next(filenum);
+        }
         print("\nv");
-        print_number(adv/100);
+        print_number(v/100);
         print_char('.');
-        print_number(adv%100);
+        print_number(v%100);
         print(" of Adv. ");
-        cbm_read(filenum, &adv, 2);
         print_number(adv);
         // skip magic number
-        //cbm_read(filenum, &ct, 2);
         print("\nDone!\n");
     }
     cbm_close(filenum);
 }
 
-uint8_t OutputPos=0; // opt // int OutputPos=0;
+uint8_t OutputPos=0;
 
 // TODO: asm opt
 void clreol() {
-    uint8_t x, y; // opt // int x, y;
+    uint8_t x=0, y=0;
     x=wherex();
     y=wherey();
     cclearxy(x, y, Width-x);
@@ -597,7 +546,7 @@ void OutBuf(char *buffer) {
         if(OutputPos==0) {
             while(*buffer && isspace(*buffer)) { // TODO: opt for isspace?
                 if(*buffer=='\n') {
-                    print("\n\r");
+                    print(EOL); // c128/c64
                     OutputPos=0;
                 }
                 buffer++;
@@ -612,7 +561,7 @@ void OutBuf(char *buffer) {
         }
         word[wp]=0;
         if(OutputPos+strlen(word)>(Width-2)) {
-            print("\n\r");
+            print(EOL); // c128/c64
             OutputPos=0;
         } else {
             gotoxy(OutputPos+0, wherey());
@@ -623,7 +572,7 @@ void OutBuf(char *buffer) {
             return;
         }
         if(*buffer=='\n' || *buffer=='\r') {
-            print("\n\r");
+            print(EOL); // c128/c64
             OutputPos=0;
         } else {
             OutputPos++;
@@ -688,9 +637,11 @@ void Look(uint8_t cs) {
     if((BitFlags&(1L<<DARKBIT)) && Items[LIGHT_SOURCE].Location!= CARRIED
             && Items[LIGHT_SOURCE].Location!= MyLoc) {
         if(Options&YOUARE) {
-            print("You can't see. It is too dark!\n\r");
+            print("You can't see. It is too dark!");
+            print(EOL); // c128/c64
         } else {
-            print("I can't see. It is too dark!\n\r");
+            print("I can't see. It is too dark!");
+            print(EOL); // c128/c64
         }
         gotoxy(xp,yp);
         return;
@@ -699,23 +650,24 @@ void Look(uint8_t cs) {
     if(*r->Text=='*')
     {
         print(r->Text+1);
-        print("\n\r");
+        print(EOL); // c128/c64
     }
     else
     {
         if(Options&YOUARE) {
             print("You are ");
             print(r->Text);
-            print("\n\r"); 
+            print(EOL); // c128/64
         } else {
             print("I'm in a ");
             print(r->Text);
-            print("\n\r"); 
+            print(EOL); // c128/64
         }
     }
     ct=0;
     f=0;
-    print("\n\rObvious exits: ");
+    print(EOL); // c128/c64
+    print("Obvious exits: ");
     while(ct<6) {
         if(r->Exits[ct]!=0) {
             if(f==0) {
@@ -730,7 +682,8 @@ void Look(uint8_t cs) {
     if(f==0) {
         print("none");
     }
-    print(".\n\r");
+    print(".");
+    print(EOL); // c128/c64
     ct=0;
     f=0;
     pos=0;
@@ -738,9 +691,11 @@ void Look(uint8_t cs) {
         if(Items[ct].Location==MyLoc) {
             if(f==0) {
                 if(Options&YOUARE) {
-                    print("\n\rYou can also see: ");
+                    print(EOL); // c128/c64
+                    print("You can also see: ");
                 } else {
-                    print("\n\rI can also see: ");
+                    print(EOL); // c128/c64
+                    print("I can also see: ");
                 }
                 pos=16;
                 f++;
@@ -750,7 +705,7 @@ void Look(uint8_t cs) {
             }
             if(pos+strlen(Items[ct].Text)>(Width-5)) { // was 10
                 pos=0;
-                print("\n\r");
+                print(EOL); // c128/c64
             }
             OutputPetscii(Items[ct].Text, 1);
             pos += strlen(Items[ct].Text);
@@ -758,7 +713,7 @@ void Look(uint8_t cs) {
         ct++;
     }
     clreol();
-    print("\n\r");
+    print(EOL); // c128/c64
     clreol();
 
     if(cs == 1) {
@@ -786,40 +741,108 @@ int8_t WhichWord(char *word, char **list) {
     return(-1);
 }
 
-// Change text, border/bg colors on the C64
-// TODO: opt asm?
+#if defined(__C128__)
+void SetColors(uint8_t text, uint8_t border, uint8_t bg) {
+    currentTextcolor = text & 15;
+    currentBorderColor = border & 15;
+    currentBackgroundColor = bg & 15;
+    textcolor(currentTextcolor);
+    bordercolor (currentBorderColor);
+    bgcolor(currentBackgroundColor);
+}
+
+// Change text, border/bg colors on the C128
 void ColorChange(uint8_t code) {
-    uint8_t curT = 0;
-    uint8_t curD = 0;
-    uint8_t curB = 0;
+    uint8_t curT = currentTextcolor;
+    uint8_t curD = currentBorderColor;
+    uint8_t curB = currentBackgroundColor;
     int8_t sh = 0;
-    curT = textcolor(0); // get Current Text Color
-    curD = PEEK(0xd020); // get Current Border Color
-    curB = PEEK(0xd021); // get current BG Color
-    sh = (code >= 0x89)?-1:1; // Shift pressed = -1, no shift = 1
+    sh = (code >= CH_F2)?-1:1; // Detect if shift pressed = -1, no shift = 1; F2,4,6,8 are > F1,3,5,7
 
     switch (code) {
-        case 0x85: // F1
-        case 0x89: // F2
-            curT += sh;
+        case CH_F1:
+        case CH_F2:
+            curT = (curT + sh) & 15;
+            if(curT == curB) {
+                curT += sh;
+            }
             break;
-        case 0x86: // F3
-        case 0x8a: // F4
+        case CH_F3:
+        case CH_F4:
             curD += sh;
+            // 80 col mode no border - change bg
+            if((PEEK(C128_MODE) & C128_MODE_80COL) == C128_MODE_80COL) {
+                ColorChange(++code);
+                return; // we don't want to recurse set
+            }
             break;
-        case 0x87: // F5
-        case 0x8b: // F6
-            curB += sh;
+        case CH_F5:
+        case CH_F6:
+            curB = (curB + sh) & 15;
+            if(curT == curB) {
+                curB += sh;
+            }
             break;
-        case 0x88: // F7
-            curT = 0; // Black
-            curD = 11; // Grey
-            curB = 11; // Still Grey
+        case CH_F7:
+            curT = COLOR_BLACK;
+            curD = COLOR_GRAY3;
+            curB = COLOR_GRAY3;
             break;
-        case 0x8c: // F8
+        case CH_F8:
             curT = rand();
             curD = rand();
             curB = rand();
+            // don't make text disappear
+            if(curT == curB) {
+                curT++;
+            }
+            break;
+    }
+    SetColors(curT, curD, curB);
+    Look(1);
+}
+
+#elif defined(__C64__)
+
+// Change text, border/bg colors on the C64
+void ColorChange(uint8_t code) {
+    uint8_t curT = textcolor(COLOR_BLACK); // get Current Text Color
+    uint8_t curD = PEEK(VIC.bordercolor); // get Current Border Color $d020
+    uint8_t curB = PEEK(VIC.bgcolor0); // get current BG Color $d021
+    int8_t sh = 0;
+    sh = (code >= CH_F2)?-1:1; // Shift pressed = -1, no shift = 1
+
+    switch (code) {
+        case CH_F1:
+        case CH_F2:
+            curT = (curT + sh) & 15;
+            if(curT == curB) {
+                curT += sh;
+            }
+            break;
+        case CH_F3:
+        case CH_F4:
+            curD += sh;
+            break;
+        case CH_F5:
+        case CH_F6:
+            curB = (curB + sh) & 15;
+            if(curT == curB) {
+                curB += sh;
+            }
+            break;
+        case CH_F7:
+            curT = COLOR_BLACK;
+            curD = COLOR_GRAY1;
+            curB = COLOR_GRAY1;
+            break;
+        case CH_F8: // F8
+            curT = rand();
+            curD = rand();
+            curB = rand();
+            if(curT == curB) {
+                curT++;
+            }
             break;
     }
     textcolor(curT & 15);
@@ -827,6 +850,14 @@ void ColorChange(uint8_t code) {
     bgcolor(curB & 15);
     Look(1);
 }
+#else
+
+void ColorChange(uint8_t code) {
+    // Not implemented
+    code=code;
+}
+
+#endif
 
 // TODO opt as asm?
 void LineInput(char *buf, uint8_t max) {
@@ -842,7 +873,7 @@ void LineInput(char *buf, uint8_t max) {
             case 10:;
             case 13:;
                 buf[pos]=0;
-                print("\n\r");
+                print(EOL); // c128/c64
                 return;
             case 8:;
             case 20:; // c64 DEL
@@ -853,10 +884,10 @@ void LineInput(char *buf, uint8_t max) {
                 }
                 break;
             default:
-                if(ch >= 0x85 && ch <= 0x8c) { // Fkeys
+                if(ch >= CH_F1 && ch <= CH_F8) { // Fkeys
                      ColorChange(ch);
                 }
-                if(ch>=' '&&ch<=126) {
+                if(ch >= ' ' && ch <= 126) {
                     buf[pos++]=ch;
                     print_char(ch);
                 }
@@ -883,13 +914,21 @@ void GetInput(int8_t* vb, int8_t* no) {
             *noun=0;
         }
         if(*noun==0 && strlen(verb)==1) {
-            switch(isupper(*verb)?tolower(*verb):*verb) { // TODO: opt isupper tolower? or just expand switch?
+            // instead of using isupper/tolower, just expand switch cases
+            switch(*verb) {
+                case 'N':
                 case 'n':strcpy(verb,"NORTH");break;
+                case 'E':
                 case 'e':strcpy(verb,"EAST");break;
+                case 'S':
                 case 's':strcpy(verb,"SOUTH");break;
+                case 'W':
                 case 'w':strcpy(verb,"WEST");break;
+                case 'U':
                 case 'u':strcpy(verb,"UP");break;
+                case 'D':
                 case 'd':strcpy(verb,"DOWN");break;
+                case 'I':
                 case 'i':strcpy(verb,"INVENTORY");break; // Brian Howarth interpreter also supports i
             }
         }
@@ -915,7 +954,7 @@ void GetInput(int8_t* vb, int8_t* no) {
 void cbm_write_value(uint8_t filenum, uint32_t value, char *end) {
     char *num;
     num = (char *)bufnum32(value);
-    cbm_write(filenum, (char *)num, num[11]); // hack buffer has size at + 11
+    cbm_write(filenum, (char *)num, num[11]); // hack buffer has size at + 11 :/
     cbm_write(filenum, end, 1);
 }
 
@@ -925,13 +964,13 @@ void SaveGame() {
     char filename[32];
     uint8_t ct=0;
     uint8_t filenum=1;
-    uint8_t device=8; // TODO: current device?
+    uint8_t device=PEEK(CBM_CURRENT_DEVICE_NUMBER);
     char *sp=" ";
     char *cr="\n";
     Output("Filename: ");
     LineInput(filename, 32);
     Output("\n");
-    if (cbm_open(filenum, device, 1, filename)) {
+    if (cbm_open(filenum, device, CBM_WRITE, filename)) {
         Output("Unable to create save file.\n");
         return;
     }
@@ -966,7 +1005,7 @@ void SaveGame() {
 void LoadGame(char *name) {
     uint8_t ct=0;
     uint8_t filenum=1;
-    uint8_t device=8; // TODO: current device?
+    uint8_t device=PEEK(CBM_CURRENT_DEVICE_NUMBER);
     uint8_t DarkFlag;
 
     SavedGame = name;
@@ -974,7 +1013,7 @@ void LoadGame(char *name) {
     print(SavedGame);
     print("'..");
 
-     if (cbm_open(filenum, device, 2, name)) {
+     if (cbm_open(filenum, device, CBM_READ, name)) {
          Output("Unable to restore game.\n");
          return;
      }
@@ -1054,101 +1093,101 @@ uint8_t PerformLine(uint8_t ct) {
         dv=cv/20;
         cv%=20;
         switch(cv) {
-            case 0:
+            case ADD_ARG_TO_PARAMS:
                 param[pptr++]=dv;
                 break;
-            case 1:
+            case ITEM_CARRIED:
                 if(Items[dv].Location!=CARRIED) {
                     return(0);
                 }
                 break;
-            case 2:
+            case ITEM_IN_ROOM_WITH_PLAYER:
                 if(Items[dv].Location!=MyLoc) {
                     return(0);
                 }
                 break;
-            case 3:
+            case ITEM_CARRIED_OR_IN_ROOM_WITH_PLAYER:
                 if(Items[dv].Location!=CARRIED&&
                     Items[dv].Location!=MyLoc) {
                     return(0);
                 }
                 break;
-            case 4:
+            case PLAYER_IN_ROOM:
                 if(MyLoc!=dv) {
                     return(0);
                 }
                 break;
-            case 5:
+            case ITEM_NOT_IN_ROOM_WITH_PLAYER:
                 if(Items[dv].Location==MyLoc) {
                     return(0);
                 }
                 break;
-            case 6:
+            case ITEM_NOT_CARRIED:
                 if(Items[dv].Location==CARRIED) {
                     return(0);
                 }
                 break;
-            case 7:
+            case PLAYER_NOT_IN_ROOM:
                 if(MyLoc==dv) {
                     return(0);
                 }
                 break;
-            case 8:
+            case BIT_FLAG_IS_SET:
                 if((BitFlags&(1L<<dv))==0) {
                     return(0);
                 }
                 break;
-            case 9:
+            case BIT_FLAG_IS_CLEARED:
                 if(BitFlags&(1L<<dv)) {
                     return(0);
                 }
                 break;
-            case 10:
+            case SOMETHING_CARRIED:
                 if(CountCarried()==0) {
                     return(0);
                 }
                 break;
-            case 11:
+            case NOTHING_CARRIED:
                 if(CountCarried()) {
                     return(0);
                 }
                 break;
-            case 12:
+            case ITEM_NOT_CARRIED_NOR_IN_ROOM_WITH_PLAYER:
                 if(Items[dv].Location==CARRIED||Items[dv].Location==MyLoc) {
                     return(0);
                 }
                 break;
-            case 13:
+            case ITEM_IS_IN_GAME:
                 if(Items[dv].Location==0) {
                     return(0);
                 }
                 break;
-            case 14:
+            case ITEM_IS_NOT_IN_GAME:
                 if(Items[dv].Location) {
                     return(0);
                 }
                 break;
-            case 15:
+            case CURRENT_COUNTER_LESS_THAN_OR_EQUAL_TO:
                 if(CurrentCounter>dv) {
                     return(0);
                 }
                 break;
-            case 16:
+            case CURRENT_COUNTER_GREATER_THAN:
                 if(CurrentCounter<=dv) {
                     return(0);
                 }
                 break;
-            case 17:
+            case ITEM_IN_INITIAL_ROOM:
                 if(Items[dv].Location!=Items[dv].InitialLoc) {
                     return(0);
                 }
                 break;
-            case 18:
+            case ITEM_NOT_IN_INITIAL_ROOM:
                 if(Items[dv].Location==Items[dv].InitialLoc) {
                     return(0);
                 }
                 break;
-            case 19:// Only seen in Brian Howarth games so far
+            case CURRENT_COUNTER_IS:// Only seen in Brian Howarth games so far
                 if(CurrentCounter!=dv) {
                     return(0);
                 }
@@ -1173,9 +1212,9 @@ uint8_t PerformLine(uint8_t ct) {
             Output(Messages[act[cc]-50]);
             Output("\n");
         } else switch(act[cc]) {
-            case 0:// NOP
+            case ACTION_NOP:
                 break;
-            case 52:
+            case ACTION_GET_ITEM:
                 if(CountCarried()==GameHeader.MaxCarry) {
                     if(Options&YOUARE) {
                         Output("You are carrying too much.\n");
@@ -1189,65 +1228,63 @@ uint8_t PerformLine(uint8_t ct) {
                 }
                 Items[param[pptr++]].Location= CARRIED;
                 break;
-            case 53:
+            case ACTION_DROP_ITEM:
                 Redraw=1;
                 Items[param[pptr++]].Location=MyLoc;
                 break;
-            case 54:
+            case ACTION_MOVE_TO_ROOM:
                 Redraw=1;
                 MyLoc=param[pptr++];
                 break;
-            case 55:
+            case ACTION_DESTROY_ITEM:
                 if(Items[param[pptr]].Location==MyLoc) {
                     Redraw=1;
                 }
                 Items[param[pptr++]].Location=0;
                 break;
-            case 56:
+            case ACTION_SET_DARK:
                 BitFlags|=1L<<DARKBIT;
                 break;
-            case 57:
+            case ACTION_CLEAR_DARK:
                 BitFlags&=~(1L<<DARKBIT);
                 break;
-            case 58:
+            case ACTION_SET_FLAG:
                 BitFlags|=(1L<<param[pptr++]);
                 break;
-            case 59:
+            case ACTION_DESTROY_ITEM2:
                 if(Items[param[pptr]].Location==MyLoc) {
                     Redraw=1;
                 }
                 Items[param[pptr++]].Location=0;
                 break;
-            case 60:
+            case ACTION_CLEAR_FLAG:
                 BitFlags&=~(1L<<param[pptr++]);
                 break;
-            case 61:
+            case ACTION_PLAYER_DEATH:
                 if(Options&YOUARE) {
                     Output("You are dead.\n");
                 } else {
                     Output("I am dead.\n");
                 }
                 BitFlags&=~(1L<<DARKBIT);
-                // Comment from sf1.14: It seems to be what the code says! */
                 MyLoc=GameHeader.NumRooms;
                 break;
-            case 62: {
-                // Bug fix for some systems - before it could get parameters wrong
+            case ACTION_ITEM_TO_ROOM: {
                 uint8_t i=param[pptr++];
                 Items[i].Location=param[pptr++];
                 Redraw=1;
                 break;
             }
-            case 63:
+            case ACTION_GAME_OVER:
                 // Note: death/game over
                 Output("The game is now over.\n");
                 cgetc();
                 Restart=1; // just restart
                 break;
-            case 64:
+            case ACTION_DESC_ROOM:
                 Look(1);
                 break;
-            case 65: {
+            case ACTION_SCORE: {
                 // Note: death/game over
                 uint8_t ct=0;
                 uint8_t n=0;
@@ -1274,7 +1311,7 @@ uint8_t PerformLine(uint8_t ct) {
                 }
                 break;
             }
-            case 66: {
+            case ACTION_INVENTORY: {
                 uint8_t ct=0;
                 uint8_t f=0;
                 if(Options&YOUARE) {
@@ -1298,13 +1335,13 @@ uint8_t PerformLine(uint8_t ct) {
                 Output(".\n");
                 break;
             }
-            case 67:
+            case ACTION_SET_FLAG_0:
                 BitFlags|=(1L<<0);
                 break;
-            case 68:
+            case ACTION_CLEAR_FLAG_0:
                 BitFlags&=~(1L<<0);
                 break;
-            case 69:
+            case ACTION_REFILL_LAMP:
                 GameHeader.LightTime=LightRefill;
                 if(Items[LIGHT_SOURCE].Location==MyLoc) {
                     Redraw=1;
@@ -1312,14 +1349,14 @@ uint8_t PerformLine(uint8_t ct) {
                 Items[LIGHT_SOURCE].Location=CARRIED;
                 BitFlags&=~(1L<<LIGHTOUTBIT);
                 break;
-            case 70:
+            case ACTION_CLEAR_SCREEN:
                 ClearScreen();
                 gotoxy(0, TopHeight+2);
                 break;
-            case 71:
+            case ACTION_SAVE_GAME:
                 SaveGame();
                 break;
-            case 72: {
+            case ACTION_SWAP_ITEM: {
                 uint8_t i1=param[pptr++];
                 uint8_t i2=param[pptr++];
                 uint8_t t=Items[i1].Location;
@@ -1330,16 +1367,16 @@ uint8_t PerformLine(uint8_t ct) {
                 Items[i2].Location=t;
                 break;
             }
-            case 73:
+            case ACTION_CONTINUE:
                 continuation=1;
                 break;
-            case 74:
+            case ACTION_TAKE_ITEM:
                 if(Items[param[pptr]].Location==MyLoc) {
                     Redraw=1;
                 }
                 Items[param[pptr++]].Location= CARRIED;
                 break;
-            case 75: {
+            case ACTION_PUT_ITEM_WITH: {
                 uint8_t i1,i2;
                 i1=param[pptr++];
                 i2=param[pptr++];
@@ -1352,28 +1389,28 @@ uint8_t PerformLine(uint8_t ct) {
                 }
                 break;
             }
-            case 76:    // Looking at adventure ..
+            case ACTION_LOOK:    // Looking at adventure ..
                 Look(1);
                 break;
-            case 77:
+            case ACTION_DEC_COUNTER:
                 if(CurrentCounter>=0) {
                     CurrentCounter--;
                 }
                 break;
-            case 78:
+            case ACTION_PRINT_COUNTER:
                 OutputNumber(CurrentCounter);
                 break;
-            case 79:
+            case ACTION_SET_COUNTER:
                 CurrentCounter=param[pptr++];
                 break;
-            case 80: {
+            case ACTION_SWAP_ROOM: {
                 uint8_t t=MyLoc;
                 MyLoc=SavedRoom;
                 SavedRoom=t;
                 Redraw=1;
                 break;
             }
-            case 81: {
+            case ACTION_SELECT_COUNTER: {
                 /* This is somewhat guessed. Claymorgue always
                    seems to do select counter n, thing, select counter n,
                    but uses one value that always seems to exist. Trying
@@ -1384,10 +1421,10 @@ uint8_t PerformLine(uint8_t ct) {
                 Counters[t]=c1;
                 break;
             }
-            case 82:
+            case ACTION_ADD_COUNTER:
                 CurrentCounter+=param[pptr++];
                 break;
-            case 83:
+            case ACTION_SUB_COUNTER:
                 CurrentCounter-=param[pptr++];
                 if(CurrentCounter< -1) {
                     CurrentCounter= -1;
@@ -1395,17 +1432,17 @@ uint8_t PerformLine(uint8_t ct) {
                 /* Note: This seems to be needed. I don't yet
                    know if there is a maximum value to limit too */
                 break;
-            case 84:
+            case ACTION_PRINT_NOUN:
                 Output(NounText);
                 break;
-            case 85:
+            case ACTION_PRINT_NOUN_CR:
                 Output(NounText);
                 Output("\n");
                 break;
-            case 86:
+            case ACTION_PRINT_CR:
                 Output("\n");
                 break;
-            case 87: {
+            case ACTION_SWAP_ROOM_VALUE: {
                 /* Changed this to swap location<->roomflag[x]
                    not roomflag 0 and x */
                 uint8_t p=param[pptr++];
@@ -1415,10 +1452,10 @@ uint8_t PerformLine(uint8_t ct) {
                 Redraw=1;
                 break;
             }
-            case 88:
+            case ACTION_PAUSE:
                 sleep(2);    /* DOC's say 2 seconds. Spectrum times at 1.5 */
                 break;
-            case 89:
+            case ACTION_SAGA_PIC:
                 pptr++;
                 /* SAGA draw picture n */
                 /* Spectrum Seas of Blood - start combat ? */
@@ -1448,11 +1485,11 @@ int8_t PerformActions(int8_t vb,int8_t no) {
     uint8_t ct=0; // opt // int ct=0;
     int8_t fl; // opt // int fl;
     uint8_t doagain=0; // opt // int doagain=0;
-    if(vb==1 && no == -1 ) {
+    if(vb==VERB_GO && no == -1 ) {
         Output("Give me a direction too.\n");
         return(0);
     }
-    if(vb==1 && no>=1 && no<=6) {
+    if(vb==VERB_GO && no>=1 && no<=6) {
         uint8_t nl; // opt // int nl;
         if(Items[LIGHT_SOURCE].Location==MyLoc ||
            Items[LIGHT_SOURCE].Location==CARRIED) {
@@ -1489,12 +1526,9 @@ int8_t PerformActions(int8_t vb,int8_t no) {
     while(ct<=GameHeader.NumActions) {
         uint16_t vv,nv;
         vv=Actions[ct].Vocab;
-        /* Think this is now right. If a line we run has an action73
-           run all following lines with vocab of 0,0 */
         if(vb!=0 && (doagain&&vv!=0)) {
             break;
         }
-        /* Oops.. added this minor cockup fix 1.11 */
         if(vb!=0 && !doagain && fl== 0) {
             break;
         }
@@ -1503,12 +1537,11 @@ int8_t PerformActions(int8_t vb,int8_t no) {
         if((vv==vb)||(doagain&&Actions[ct].Vocab==0)) {
             if((vv==0 && RandomPercent(nv))||doagain||
                 (vv!=0 && (nv==no||nv==0))) {
-                uint8_t f2; // opt // int f2;
+                uint8_t f2;
                 if(fl== -1) {
                     fl= -2;
                 }
                 if((f2=PerformLine(ct))>0) {
-                    /* ahah finally figured it out ! */
                     fl=0;
                     if(f2==2) {
                         doagain=1;
@@ -1530,9 +1563,8 @@ int8_t PerformActions(int8_t vb,int8_t no) {
            Items[LIGHT_SOURCE].Location==CARRIED) {
                d=0;
         }
-        if(vb==10 || vb==18) { // TAKE || DROP
-            /* Yes they really _are_ hardcoded values */
-            if(vb==10) { // TAKE
+        if(vb==VERB_TAKE || vb==VERB_DROP) {
+            if(vb==VERB_TAKE) {
                 if(strcasecmp(NounText,"ALL")==0) {
                     uint8_t ct=0;
                     uint8_t f=0;
@@ -1594,7 +1626,7 @@ int8_t PerformActions(int8_t vb,int8_t no) {
                 Redraw=1;
                 return(0);
             }
-            if(vb==18) { // DROP
+            if(vb==VERB_DROP) {
                 if(strcasecmp(NounText,"ALL")==0) {
                     uint8_t ct=0;
                     uint8_t f=0;
@@ -1680,7 +1712,7 @@ void GameLoop() {
     int8_t vb=0,no=0;
 
     while(1) {
-        // Note: Redraws removed, using look hack after prompt
+        // Note: Redraws/Redraw checks removed, using look hack after prompt
         PerformActions(0,0);
         if(Restart!=0) {
             Restart=0;
@@ -1701,6 +1733,7 @@ void GameLoop() {
 }
 
 // Parse arg to Options, or fail
+// return sargument offset for remaining args: (dat/bdat, savegame)
 uint8_t ParseArgs(uint8_t argc, char *argv[]) {
     uint8_t argo = 0;
     while(argv[1]) {
@@ -1755,28 +1788,31 @@ uint8_t ParseArgs(uint8_t argc, char *argv[]) {
 }
 
 void GameSetup(char *filename, char *savedgame) {
-    uint8_t filenum = 1;
-    uint8_t device = 8; // TODO: Current Device
-    uint16_t chk[3] = {0,0,0};
-
-    // TODO: device
-    if (cbm_open(filenum, device, 2, filename)) {
-        print("Unable to load \"");
-        print(filename);
-        print_char('\"');
-        exit(1);
-    }
-
-    Width = 40; 
+    uint8_t textColor = COLOR_BLACK;
+    uint8_t bgcolorColor = COLOR_GRAY1;
     TopHeight = 10;
+#if defined(__C128__)
+    if((PEEK(C128_MODE) & C128_MODE_80COL) == C128_MODE_80COL) {
+        Width = 80;
+        videomode(VIDEOMODE_80COL);
+        fast();
+    } else {
+        Width = 40;
+    }
+    textColor = COLOR_BLACK;
+    bgcolorColor = COLOR_GRAY3;
+#elif defined(__C64__)
+    Width = 40;
+#endif
 
     OutReset();
     ClearScreen();
-    textcolor (14);     // Light blue
-    bgcolor (0);        // Black
-    bordercolor (11);   // Dark Grey
+    textcolor (COLOR_LIGHTBLUE);     // Light blue
+    bgcolor (COLOR_BLACK);        // Black
+    bordercolor (COLOR_GRAY1);
 
-    print("ScottFree64 {VERSION}, A c64 port of:\
+    print("ScottFree{NAME} {VERSION}, by M. Seelye\
+A c{NAME} port of:\
 ScottFree, Scott Adams game driver in C\
 Release 1.14b(PC), (c) 1993,1994,1995\
 Swansea University Computer Society.\
@@ -1786,46 +1822,36 @@ Distributed under the GNU software\nlicense\n\n");
     print_number(_heapmemavail());
     print(")\nLoading ");
     print(filename);
-    print(" as ");
+    print_char('\n');
 
-    // Detect ascii or binary
-    // Close and reopen in LoadDatabase call
-    chk[0] = cbm_read_next(filenum);
-    chk[1] = cbm_read_next(filenum);
-    chk[2] = cbm_read_next(filenum);
-    cbm_close(filenum);
-    
-    // if could not read text numbers, should be binary DAT
-    if(chk[0]==0 && chk[1]==0 && chk[2]==0) { 
-        print("BDAT\n");
-        LoadDatabaseBinary(filename,(Options&DEBUGGING)?1:0); // load Binary DAT file
-    } else {
-        print("DAT\n");
-        LoadDatabase(filename,(Options&DEBUGGING)?1:0);  // load DAT file
-    }
-    
+    LoadDatabase(filename,(Options&DEBUGGING)?1:0);  // load DAT/BDAT file
+
     // Load Saved Game
     if(savedgame!=NULL) {
         LoadGame(savedgame);
     }
-    
-    // seed from c64 $a2 and $d012
-    srand((PEEK(0x00a2) << 8) | (PEEK(0xd012)));
+
+    // seed from c64/c128 $a2 and $d012
+    srand((PEEK(CBM_TIME_LOW) << 8) | (PEEK(VIC.rasterline)));
 
     print("MemFree(");
     print_number(_heapmemavail());
     print(")\n");
 
     // Initial Colors
-    textcolor (0);    // black
-    bgcolor (11);     // grey
-    bordercolor (11); // grey
+#if defined(__C128__)
+    SetColors(textColor, bgcolorColor, bgcolorColor);
+#else
+    textcolor (textColor);
+    bgcolor (bgcolorColor);
+    bordercolor (bgcolorColor);
+#endif
 }
 
 uint8_t main(uint8_t argc, char *argv[]) {
     int8_t argo = 0;
     argo = ParseArgs(argc, argv);
-    
+
     GameSetup(argv[argo+1], (argc-argo==3)? argv[argo+2] : NULL);
 
     // Outer Loop
