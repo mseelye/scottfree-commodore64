@@ -1,6 +1,10 @@
 #
-# ScottFree64 Makefile
+# ScottFree64/128 Makefile
 # Reworking of ScottFree Revision 1.14b for the Commodore 64
+# Version 2 - heavier cbm optimization
+#
+# To build c128 version use: 
+#   SYS=c128 make clean all
 #
 # Scott Free, A Scott Adams game driver in C.  
 # Release 1.14b (PC), (c) 1993,1994,1995 Swansea University Computer Society.  
@@ -10,7 +14,7 @@
 #
 
 # Release Version
-VERSION = v0.9.4
+VERSION = v2.0.3
 
 # Determine what OS this is running on and adjust
 OSUNAME := $(shell uname)
@@ -46,7 +50,7 @@ PETCAT = "$(shell command -v $(PETCAT_EXE) 2> /dev/null)"
 PETCAT_CONSIDER = "please consider installing $(PETCAT_EXE) from https://vice-emu.sourceforge.io/"
 
 # exomizer - used to crunch the scottfree64 program file
-CRUNCHER_EXE = exomizer
+CRUNCHER_EXE := exomizer
 CRUNCHER = "$(shell command -v $(CRUNCHER_EXE) 2> /dev/null)"
 CRUNCHER_CONSIDER = " please consider installing $(CRUNCHER_EXE) from https://bitbucket.org/magli143/exomizer/wiki/Home"
 ifeq ("",$(CRUNCHER))
@@ -55,10 +59,20 @@ else
 	CRUNCHER_EXT := .sfx
 endif
 
-# Compiler flags
-CRUNCHERFLAGS =  sfx sys -m 16384 -q -n
+# Flags
+ifeq "$(SYS)" "c64"
+	PETCATFLAGS =  -ic -w2 -l 0801 -o
+	TARGETTYPE = 64
+else
+#	PETCATFLAGS =  -ic -w7 -l 1c01 -o  # w7 is not Implemented
+	PETCATFLAGS =  -ic -w2 -l 1c01 -o
+	TARGETTYPE = 128
+endif
+
 #CFLAGS = --static-locals -Ors --codesize 500 -T -g -t $(SYS)
 CFLAGS = --static-locals -Ors --codesize 100 -t $(SYS)
+
+CRUNCHERFLAGS = sfx sys -t $(TARGETTYPE) -m 16384 -q -n
 
 # Check for required executables
 REQ_EXECUTABLES = $(AS) $(CC) $(LD)
@@ -66,7 +80,7 @@ K := $(foreach exec,$(REQ_EXECUTABLES),\
         $(if $(shell which $(exec)),some string,$(error "Required tool $(exec) not found in PATH")))
 
 # Version inject
-DIST_SED:=s/{VERSION}/$(VERSION)/g;
+DIST_SED:=s/{VERSION}/$(VERSION)/g;s/{NAME}/$(TARGETTYPE)/g;
 
 # Directories
 OBJDIR = out
@@ -76,16 +90,17 @@ DISTDIR = dist
 GAMESDIR = games
 
 # Main target
-TARGET = scottfree64
+TARGET = scottfree$(TARGETTYPE)
 DIST = $(DISTDIR)/$(TARGET)
 
 # Note: 16 character limit on filenames in a d64/d81 disk image
 #GAMES   := ghostking.dat sampler1.dat
 GAMES   := ghostking.dat sampler1.dat ghostking.bdat sampler1.bdat
 SOURCES  := $(wildcard $(SRCDIR)/*.c)
+ASMSOURCES  := $(wildcard $(SRCDIR)/*.s)
 INCLUDES := $(wildcard $(SRCDIR)/*.h)
 OBJECTS  := $(SOURCES:$(SRCDIR)/%.c=$(OBJDIR)/%.o)
-ASMS  := $(SOURCES:$(SRCDIR)/%.c=$(OBJDIR)/%.o)
+ASMOBJECTS  := $(ASMSOURCES:$(SRCDIR)/%.s=$(OBJDIR)/%.o)
 
 all: directories $(BINDIR)/$(TARGET) readme disk disk81
 
@@ -93,9 +108,9 @@ all: directories $(BINDIR)/$(TARGET) readme disk disk81
 %: %.s
 
 # Link main target
-$(BINDIR)/$(TARGET): $(OBJECTS)
+$(BINDIR)/$(TARGET): $(OBJECTS) $(ASMOBJECTS)
 	@$(ECHO) "*** Linking $<"
-	$(LD) $(LDFLAGS) -o $@ -t $(SYS) -m $@.map $(OBJECTS) $(SYS).lib
+	$(LD) $(LDFLAGS) -o $@ -t $(SYS) -m $@.map $(OBJECTS) $(ASMOBJECTS) $(SYS).lib
 ifeq ("",$(CRUNCHER))
 	@$(ECHO) "*** Note: $(CRUNCHER_EXE) is not in PATH, cannot crunch $@, $(CRUNCHER_CONSIDER)"
 else
@@ -109,21 +124,29 @@ $(OBJECTS): $(OBJDIR)/%.o : $(SRCDIR)/%.c $(INCLUDES)
 	@cat $< | sed -e "$(DIST_SED)" > $<.tmp
 	$(CC) $(CFLAGS) $<.tmp
 	$(AS) $<.s -o $@
-#	$(AS) $(<:.c =.s) -o $@
 	@$(ECHO) "*** Compilation complete\n"
-	@rm $<.tmp $<.s
+	@rm $<.tmp
+	@mv $<.s $(OBJDIR)
+
+# Assemble optimization library
+$(ASMOBJECTS): $(OBJDIR)/%.o : $(SRCDIR)/%.s $(INCLUDES)
+	@$(ECHO) "*** Assembling $<"
+	@cat $< | sed -e "$(DIST_SED)" > $<.tmp
+	$(AS) $<.tmp -o $@
+	@$(ECHO) "*** Assembly complete\n"
+	@rm $<.tmp
 
 # petcat BASIC stub/readme program
 # petcat -ic -w2 -o readme2.prg -- readme.txt
 .PHONY: readme
-readme: $(SRCDIR)/readme.prg
-$(SRCDIR)/readme.prg: $(SRCDIR)/readme.c64basic
+readme: $(SRCDIR)/readme$(TARGETTYPE).prg
+$(SRCDIR)/readme$(TARGETTYPE).prg: $(SRCDIR)/readme.c$(TARGETTYPE)basic
 ifeq ("",$(PETCAT))
 	@$(ECHO) "*** Note: $(PETCAT_EXE) is not in PATH, cannot build readme, $(PETCAT_CONSIDER)"
 else
 	@$(ECHO) "*** Tokenizing $< with $(PETCAT)"
 	@cat $< | sed -e "$(DIST_SED)" > $<.tmp
-	$(PETCAT) -ic -w2 -o $@ -- $<.tmp
+	$(PETCAT) $(PETCATFLAGS) $@ -- $<.tmp
 	@$(ECHO) "*** Tokenization complete\n"
 	@rm $<.tmp
 endif
@@ -131,12 +154,12 @@ endif
 # Create d64 disk
 .PHONY: disk
 disk:  $(DIST).d64
-$(DIST).d64: $(BINDIR)/$(TARGET) $(SRCDIR)/readme.prg
+$(DIST).d64: $(BINDIR)/$(TARGET) $(SRCDIR)/readme$(TARGETTYPE).prg
 ifeq ("",$(C1541))
 	@$(ECHO) "\n*** Note: c1541 is not in PATH, cannot build disk. $(C1541_CONSIDER)"
 else
 	@$(ECHO) "\n*** Building d64 disk...$@"
-	@$(C1541) -format scottfree64,bh d64 $@ -attach $@ -write src/readme.prg readme
+	@$(C1541) -format scottfree$(TARGETTYPE),bh d64 $@ -attach $@ -write src/readme$(TARGETTYPE).prg readme$(TARGETTYPE)
 	@$(C1541) -attach $@ -write $(BINDIR)/$(TARGET)$(CRUNCHER_EXT) $(TARGET)
 # Base Set of Games
 	@for dat in  $(GAMES); \
@@ -156,12 +179,12 @@ endif
 # Create d81 disk
 .PHONY: disk81
 disk81: $(DIST).d81
-$(DIST).d81: $(BINDIR)/$(TARGET) $(SRCDIR)/readme.prg
+$(DIST).d81: $(BINDIR)/$(TARGET) $(SRCDIR)/readme$(TARGETTYPE).prg
 ifeq ("",$(C1541))
 	@$(ECHO) "\n*** Note: c1541 is not in PATH, cannot build d81 disk. $(C1541_CONSIDER)"
 else
 	@$(ECHO) "\n*** Building d81 disk...$@\n"
-	@$(C1541) -format scottfree64,bh d81 $@ -attach $@ -write src/readme.prg readme
+	@$(C1541) -format scottfree$(TARGETTYPE),bh d81 $@ -attach $@ -write src/readme$(TARGETTYPE).prg readme$(TARGETTYPE)
 	@$(C1541) -attach $@ -write $(BINDIR)/$(TARGET)$(CRUNCHER_EXT) $(TARGET)
 # Base Set of Games
 	@for dat in  $(GAMES); \
@@ -242,9 +265,10 @@ clean:
 	-rm -rf $(BINDIR)
 	-rm -f $(SRCDIR)/$(TARGET).s
 ifeq ("",$(PETCAT))
-	@$(ECHO) "*** Note: $(PETCAT_EXE) is not in PATH, not cleaning readme.prg, $(PETCAT_CONSIDER)"
+	@$(ECHO) "*** Note: $(PETCAT_EXE) is not in PATH, not cleaning readme64/128.prg, $(PETCAT_CONSIDER)"
 else
-	-rm -f $(SRCDIR)/readme.prg
+	-rm -f $(SRCDIR)/readme64.prg
+	-rm -f $(SRCDIR)/readme128.prg
 endif
 
 # Build out directories

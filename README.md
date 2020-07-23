@@ -32,13 +32,15 @@ I also used this to explore cc65 again, which was a lot of fun.
 This is not as effecient as the original Redraw logic, but without making many changes this was the easiest way to avoid display issues.
 * I also have made yet-another-ncurses port that will compile and run on Windows(mingw/MSys2), MacOS, and linux (Tested on Ubuntu). I'll link that here once I finish that up.
 * Based on feedback that black text on grey is "blah" I added the ability to use the F-keys to change the text, border, and background colors. **F1/F2** to inc/dec text color, **F3/F4** inc/dec border color, **F5/F6** inc/dec background color, F7 to restore to glorious monochrome "blah", **F8** to pick random colors for all.
+* I've now completed some optimizations to replace some of the more bloated standard library calls with some custom ones.
+* The optimizations have allowed this to easily run on the c128, it auto-detects 40/80 column mode as well.
 
 ## Enough, how do I play?
 You will need either a Commodore 64 emulator such as [Vice](https://vice-emu.sourceforge.io/), or some way to transfer the d64 or d81 files to a real 1541/1581 disk and play on your Commodore 64!  
 
 * Download either the scottfree64.d64 and/or the scottfree64.d81 file from the dist directory.
 * Open Vice, set the drive type to the appropriate type (1541/1581), and attach to the d64 or d81 respectively.
-* Use `LOAD "*",8,1` or `LOAD "README",8,1` and the `RUN`. This will load a BASIC stub readme I've created to help you understand the loading process, and how to pass arguments to the program.  
+* Use `LOAD "*",8,1` or `LOAD "README64",8,1` and the `RUN`. This will load a BASIC stub readme I've created to help you understand the loading process, and how to pass arguments to the program.  
 * The readme will explain that you need to first `LOAD "SCOTTFREE64",8,1`, THEN you must pass it any options you want to use, the game's file name, and optionally a save game file. 
 * **Note:** ScottFree64 now supports a binary formatted DAT file called **BDAT**. These BDAT files are optimized to **load much more quickly** with ScottFree64 (starting with version 0.9.3). To use just use the bdat file instead of the dat file. (**ghostking.bdat** instead of ghostking.dat)  
 
@@ -76,6 +78,13 @@ While in a game there are some other options available:
 * **F5 / F6** Change background color  
 * **F7** Restore colors to starting colors (black text, grey background and border)  
 * **F8** Picks random colors for text, background and border.  
+
+## Commodore 128 version
+Follow the same steps above for the Commodore 64, except download the d64/d81 file called scottfree128.d64 or scottfree128.d81. 
+Also, you will need to instead load the README128 file: `LOAD "README128",8,1` 
+To run in 80 column mode, switch to 80 columns and load and run as described aboce while in 80 column mode. 
+
+To build the Commodore 128 version use: `SYS=c128 make clean all`
 
 ## Games
 Again, all of the games in the [games](games) directory belong to the original authors. Provided here for the sake of convenience.
@@ -178,7 +187,7 @@ With all the tools installed a build looks like:
 	writing file `GAMES/SAMPLER1.DAT' as `SAMPLER1.DAT' to unit 8
 	*** Disk Contents:
 	0 "scottfree64     " bh 2a
-	3     "readme"            prg
+	3     "readme64"          prg
 	60    "scottfree64"       prg
 	56    "ghostking.dat"     prg
 	55    "sampler1.dat"      prg
