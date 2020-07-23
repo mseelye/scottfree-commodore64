@@ -3,6 +3,9 @@
 # Reworking of ScottFree Revision 1.14b for the Commodore 64
 # Version 2 - heavier cbm optimization
 #
+# To build c128 version use: 
+#   SYS=c128 make clean all
+#
 # Scott Free, A Scott Adams game driver in C.  
 # Release 1.14b (PC), (c) 1993,1994,1995 Swansea University Computer Society.  
 # Port to Commodore 64 as ScottFree64 Release 0.9, (c) 2020 Mark Seelye  
@@ -11,7 +14,7 @@
 #
 
 # Release Version
-VERSION = v2.0.2
+VERSION = v2.0.3
 
 # Determine what OS this is running on and adjust
 OSUNAME := $(shell uname)
@@ -137,7 +140,7 @@ $(ASMOBJECTS): $(OBJDIR)/%.o : $(SRCDIR)/%.s $(INCLUDES)
 # petcat -ic -w2 -o readme2.prg -- readme.txt
 .PHONY: readme
 readme: $(SRCDIR)/readme$(TARGETTYPE).prg
-$(SRCDIR)/readme$(TARGETTYPE).prg: $(SRCDIR)/readme.c64basic
+$(SRCDIR)/readme$(TARGETTYPE).prg: $(SRCDIR)/readme.c$(TARGETTYPE)basic
 ifeq ("",$(PETCAT))
 	@$(ECHO) "*** Note: $(PETCAT_EXE) is not in PATH, cannot build readme, $(PETCAT_CONSIDER)"
 else

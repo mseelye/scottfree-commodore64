@@ -30,11 +30,12 @@ uint16_t __fastcall__ bufnum32(uint32_t);
 uint8_t __fastcall__ a2p (uint8_t);
 void __fastcall__ a2p_string (unsigned char *, uint8_t);
 
-uint8_t __fastcall__ parseVerbNoun(char *buf, uint8_t wl, char *verb, char *noun);
-uint8_t __fastcall__ nextWord(char *buf, uint8_t wl, char *word);
+uint8_t __fastcall__ parse_verb_noun(char *buf, uint8_t wl, char *verb, char *noun);
+uint8_t __fastcall__ next_word(char *buf, uint8_t wl, char *word);
 
-uint8_t __fastcall__ isspace(uint8_t c);
+uint8_t __fastcall__ is_space(uint8_t c);
 
-uint16_t __fastcall__ getsp(void);
+// DEBUG - Used to output stackpointer value when debugging stack issues
+//uint16_t __fastcall__ getsp(void);
 
 #endif

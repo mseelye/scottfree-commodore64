@@ -1,9 +1,11 @@
 #if defined(__C128__)
 
 #include <c128.h>
+
 #define EOL "\n"
 #define C128_MODE 0xd7
 #define C128_MODE_80COL 0x80
+#define SCROLL 0xf8
 
 #elif defined(__C64__)
 
@@ -16,11 +18,11 @@
 
 #ifndef PEEK
     #define PEEK(addr) (*(unsigned char*) (addr))
+    #define POKE(addr,val) (*(unsigned char*) (addr) = (val))
 #endif
 
-
-// new option that autoloads saved game on restart
-#define RESTORE_SAVED_ON_RESTART 32
+#define BDAT_MODE   0
+#define DAT_MODE    1
 
 #define VERB_GO       1
 #define VERB_TAKE     10

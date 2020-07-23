@@ -1,9 +1,9 @@
 /*
  *  ScottFree-64 - a Reworking of ScottFree Revision 1.14b for the Commodore 64
  *  (C) 2020 - Mark Seelye / mseelye@yahoo.com
- *  Version 2.0.2
+ *  Version 2.0.3
  *  Heavier cbm optimizations.
- *  C128 and 80 Column Mode
+ *  Commodore 128 and 80 Column Mode
  *
  *  Requires: cc65 dev environment, build essentials (make)
  *  Optional: 
@@ -12,14 +12,14 @@
  *  build c64 version with:
  *    make clean all
  *
- *  build c128 version with:
+ *  build Commodore 128 version with:
  *    SYS=c128 make clean all
  *
  *  Run with:
  *    Your Commodore 64 or Commodore 128! (Or VICE, x64, x64sc, x128)
  *    Once you load the binary with 
  *      load "scottfree64",8,1
- *     Or on the c128:
+ *     Or on the Commodore 128:
  *      load "scottfree128",8,1
  *    You use cc65's argument passing like:
  *      run:rem -d myfavgame.dat mysavegame
@@ -34,6 +34,13 @@
  *      In addition to output (printf/sprintf), and file i/o (fscanf) I also created 
  *      an all asm input parser for verb and noun that takes much less space than having
  *      sscanf linked in.
+ *      I've also made use of bank 1 on the Commodore 128, storing all the messages there to save memory in bank 0.
+ *      Added prompt to Load last save on death, or Restart
+ *
+ *   Thanks:
+ *      Big thanks for all the testing, advice and encouragement from Jason Compton, 
+ *      Robin Harbron, Adrian Gonzalez (dW), Per (MagerValp), Oliver V.(Six), 
+ *      Bob S.(Dokken), David (jbevren) and Sam.
  *
  *   This program is distributed in the hope that it will be useful,
  *   but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -58,39 +65,48 @@
  *    You must have an ANSI C compiler to build this program.
  */
 
-#include <string.h>   // strcpy, strncasecmp, memcpy, strchr, strcmp, strlen, strcasecmp
-#include <stdlib.h>   // exit, malloc, rand, atol, free, _heapmemavail, srand
-#include <conio.h>    // cgetc, clrscr, gotoxy, cclearxy, wherex, wherey, textcolor, bordercolor
-#include <cbm.h>      // cbm_read, cbm_open, cbm_close
-#include <unistd.h>   // sleep
-#include <stdint.h>   // [u]int[8|16|32]_t (also included with one of the above^)
+#include <string.h>         // strcpy, strncasecmp, memcpy, strchr, strcmp, strlen, strcasecmp
+#include <stdlib.h>         // exit, malloc, rand, atol, free, _heapmemavail, srand
+#include <conio.h>          // cgetc, clrscr, gotoxy, cclearxy, wherex, wherey, textcolor, bordercolor
+#include <cbm.h>            // cbm_read, cbm_open, cbm_close
+#include <unistd.h>         // sleep
+#include <stdint.h>         // [u]int[8|16|32]_t (also included with one of the above^)
 
-#include "scottfree64.h"
-#include "scottfree.h"
-#include "sf64.h"
+#include "scottfree64.h"    // various constants used for the c64/c128 versions
+#include "scottfree.h"      // original SCOTT.H header file from 1.14b
+#include "sf64.h"           // header file for optimized asm routines for c64/c128
+#if defined(__C128__)
+#include <em.h>             // cc65 extended memory driver for c128's bank 1
+#endif
 
 Header GameHeader;
 Item *Items;
 Room *Rooms;
-char **Verbs;
-char **Nouns;
-char **Messages;
+uint8_t **Verbs;
+uint8_t **Nouns;
 Action *Actions;
-int LightRefill = 0;
-char NounText[16];
-int Counters[16];           // Range unknown
-int CurrentCounter = 0;
-int SavedRoom = 0;
-int RoomSaved[16];          // Range unknown
-int Redraw = 0;             // Update item window
-int Restart = 0;            // Flag to restart game, see NewGame()
-char *SavedGame;            // Name of the saved game that was loaded, if any
-int Options = 0;            // Option flags set
-int Width = 0;              // Terminal width
-int TopHeight = 0;          // Height of top window
-// Not Used: int BottomHeight;    // Height of bottom window
-int InitialPlayerRoom = 0;  // added to help with restarting w/o reloading see: NewGame()
-char block[512];            // global buffer, used by multiple functions for temp storage
+// c128 stores length in bank 0 and messages in bank 1
+#if defined(__C128__)
+    uint8_t *MessageLen;
+#else
+    uint8_t **Messages;
+#endif
+
+uint8_t LightRefill = 0;
+uint8_t NounText[16];
+uint16_t Counters[16];          // Range unknown
+uint16_t CurrentCounter = 0;
+uint8_t SavedRoom = 0;
+uint8_t RoomSaved[16];          // Range unknown
+uint8_t Redraw = 0;             // Update item window
+uint8_t Restart = 0;            // Flag to restart game, see NewGame()
+uint8_t *SavedGame = NULL;      // Name of the saved game that was loaded, if any
+uint8_t Options = 0;            // Option flags set
+uint8_t Width = 0;              // Terminal width
+uint8_t TopHeight = 0;          // Height of top window
+uint8_t InitialPlayerRoom = 0;  // added to help with restarting w/o reloading see: NewGame()
+uint8_t block[512];             // global buffer, used by multiple functions for temp storage
+uint8_t OutputPos=0;            // Output position on line
 
 // c128 shadow values so don't have to do VDC hoops in 80col mode
 #if defined(__C128__)
@@ -103,7 +119,7 @@ char block[512];            // global buffer, used by multiple functions for tem
 
 long BitFlags=0;    // Might be >32 flags, previous comment said, "I haven't seen >32 yet"
 
-void Fatal(char *x) {
+void Fatal(uint8_t *x) {
     print(x);
     print_char('\n');
     cgetc();
@@ -133,11 +149,11 @@ void *MemAlloc(uint16_t size) {
     return(t);
 }
 
-// 1.14 steps random %: 1-4=%4 5-8:%7  9-12:%10 etc
-// Updated to be more like Java version 1.18.
+// 1.14b steps random %: 1-4=%4 5-8:%7  9-12:%10 etc
+// Updated to be more like ScottFree Java version 1.18.
 uint8_t RandomPercent(uint8_t percent) {
     int16_t val = rand() % 100;
-    // the srand code in cc65 surpresses the sign bit, but just in case that changes
+    // cc65's srand surpresses sign bit, checking anyway
     if(val < 0) {
         val = -val;
     }
@@ -159,16 +175,16 @@ uint8_t CountCarried() {
     return(n);
 }
 
-char *MapSynonym(char *word) {
+uint8_t *MapSynonym(uint8_t *word) {
     uint8_t n=1;
-    char *tp;
-    static char lastword[16];     // Last non synonym
+    uint8_t *tp;
+    static uint8_t lastword[16];     // Last non synonym
     while(n<=GameHeader.NumWords) {
         tp=Nouns[n];
         if(*tp=='*') {
             tp++;
         } else {
-            strcpy(lastword,tp);  // TODO opt?
+            strcpy(lastword,tp);
         }
         if(strncasecmp(word,tp,GameHeader.WordLength)==0) {
             return(lastword);
@@ -178,9 +194,8 @@ char *MapSynonym(char *word) {
     return(NULL);
 }
 
-// TODO: asm opt
-int8_t MatchUpItem(char *text, uint8_t loc) {
-    char *word=MapSynonym(text);
+int8_t MatchUpItem(uint8_t *text, uint8_t loc) {
+    uint8_t *word=MapSynonym(text);
     uint8_t ct=0;
     
     if(word==NULL) {
@@ -198,50 +213,52 @@ int8_t MatchUpItem(char *text, uint8_t loc) {
 }
 
 // read file until next whitespace, convert to 32 bit integer
+// Note: Uses global block buffer
 uint32_t cbm_read_next(uint8_t filenum) {
-    char buf[32]; // TODO: can this use common block?
     int8_t c = 0;
     uint8_t ct=0;
     int8_t t=0;
     // Skip over initial ws
     do {
         t = cbm_read(filenum, &c, 1);
-    } while(t > 0 && isspace((int)c));
+    } while(t > 0 && is_space(c));
     if(t<=0) {
         print_signed_8(t);
         Fatal(" Error reading data");
     }
-    buf[ct++]=c; // first usable character after any whitespace
+    block[ct++]=c; // first usable character after any whitespace
     do {
         t = cbm_read(filenum, &c, 1);
-        if(t <= 0 || c==' ' || c=='\n' || c=='\r') // ws = parse delim c==EOF || 
+        if(t <= 0 || c==' ' || c=='\n' || c=='\r') // ws = parse delim, c==EOF
             break;
-        buf[ct++]=c;
-    } while(ct<31);
-    buf[ct]=0;
-    return(atol(buf));
+        block[ct++]=c;
+    } while(ct<31); // could really be 11
+    block[ct]=0;
+    return(atol(block));
 }
 
 // Note: uses common global block buffer, instead of local tmp buffer
 char* ReadString (uint8_t filenum, uint8_t ca2p) {
     uint8_t ct=0;
-    uint8_t c, nc;
-    uint8_t pbc = 0; // pushback buffer, our "ungetch"
+    uint8_t c=0, nc=0;
+    uint8_t pbc = 0;    // pushback buffer, our "ungetch"
     int8_t t = 0;
-    char* r; // result
+    char* sp;           // result
 
     do {
+        // check pushback buffer and take from there, otherwise read
         if(pbc==0) {
             t = cbm_read(filenum, &c, 1);
         } else {
             c = pbc;
             pbc = 0;
         }
-    } while(t > 0 && isspace((int)c));
+    } while(t > 0 && is_space(c));
     if(c!='"') {
         Fatal("Initial quote expected");
     }
     do {
+        // check pushback buffer and take from there, otherwise read
         if(pbc==0) {
             t = cbm_read(filenum, &c, 1);
         } else {
@@ -251,19 +268,22 @@ char* ReadString (uint8_t filenum, uint8_t ca2p) {
         if(t<=0) { // cbm EOF or ERROR
             Fatal("EOF in string");
         }
+        // if char is a quote, check if we have an escaped quote ("")
         if(c=='"') {
+            // check pushback buffer and take from there, otherwise read
             if(pbc==0) {
                 t = cbm_read(filenum, &nc, 1);
             } else {
                 nc = pbc;
                 pbc = 0;
             }
+            // if next char is NOT a quote, put next char in pushback buffer
             if(nc!='"') {
-                pbc=nc; // "ungetc(nc,f)"
+                pbc=nc; // "ungetc(nc,f)" - store "next char" in pushback buffer
                 break;
             }
         }
-        if(c==0x60) {
+        if(c==0x60) { // '`' "grave" character used as quote
             c='"';
         }
 #if defined(__c64__)
@@ -272,18 +292,19 @@ char* ReadString (uint8_t filenum, uint8_t ca2p) {
             c='\r';
         }
 #endif
+        // if caller indicated convert ascii to petscii
         if(ca2p==1) {
             c=a2p(c);
         }
         block[ct++]=c;
     } while(1);
-    block[ct]=0;
-    r=MemAlloc(ct+1);
-    memcpy(r,block,ct+1);
-    return(r);
+    block[ct]=0;            // terminate string
+    sp=MemAlloc(ct+1);      // allocate memory for string
+    memcpy(sp,block,ct+1);  // copy string from buffer into allocated memory
+    return(sp);
 }
 
-void DebugMessage(uint8_t loud, char *msg, uint8_t num) {
+void DebugMessage(uint8_t loud, uint8_t *msg, uint8_t num) {
     if(loud) {
         print_char('\n');
         print_number(num);
@@ -292,22 +313,19 @@ void DebugMessage(uint8_t loud, char *msg, uint8_t num) {
     }
 }
 
-// Load Binary DAT String
+// Load Binary DAT String ([length][bytes * length][0])
 uint8_t *LoadString(filenum) {
     uint8_t *string;
-    uint8_t length = 0;
+    uint8_t length = 0; // Note: 255 char max
     cbm_read(filenum, &length, 1);
     string=(uint8_t *)MemAlloc((length+1) * sizeof(uint8_t));
-    if(length == 0) {
-        cbm_read(filenum, &length, 1);
-        string[0]='\0';
-        return(string);
-    }
     cbm_read(filenum, string, (length+1) * sizeof(uint8_t));
     return(string);
 }
 
-uint8_t DetectMode(char *filename) {
+// attempt read first three text values from file
+// if possible then likely a regular DAT file, otherwise likely BDAT
+uint8_t DetectMode(uint8_t *filename) {
     uint8_t filenum = 1;
     uint8_t device=PEEK(CBM_CURRENT_DEVICE_NUMBER);
     uint16_t chk[3] = {0,0,0};
@@ -315,7 +333,7 @@ uint8_t DetectMode(char *filename) {
         print("Unable to load \"");
         print(filename);
         print_char('\"');
-        exit(1);
+        Fatal("File Error");
     }
     // Detect ascii or binary
     // Close and reopen in LoadDatabase call
@@ -323,11 +341,11 @@ uint8_t DetectMode(char *filename) {
     chk[1] = cbm_read_next(filenum);
     chk[2] = cbm_read_next(filenum);
     cbm_close(filenum);
-    return( (chk[0]==0 && chk[1]==0 && chk[2]==0)?0:1 );
+    return( (chk[0]==0 && chk[1]==0 && chk[2]==0) ? BDAT_MODE : DAT_MODE );
 }
 
 // Load Binary DAT or DAT File
-void LoadDatabase(char *filename, uint8_t loud) {
+void LoadDatabase(uint8_t *filename, uint8_t loud) {
     uint8_t ct=0;
     uint8_t filenum=1;
     uint8_t device=PEEK(CBM_CURRENT_DEVICE_NUMBER);
@@ -335,11 +353,12 @@ void LoadDatabase(char *filename, uint8_t loud) {
     Action *ap;
     Room *rp;
     Item *ip;
+    uint8_t *mp;
 
     mode = DetectMode(filename);
     cbm_open(filenum, device, CBM_READ, filename);
 
-    if(mode == 0) {
+    if(mode == BDAT_MODE) {
         print("BDAT\n");
         cbm_read(filenum, &GameHeader.Unknown, sizeof(GameHeader));
     } else {
@@ -362,17 +381,22 @@ void LoadDatabase(char *filename, uint8_t loud) {
 
     // Allocate this all here, may help with fragmentation
     Actions=(Action *)MemAlloc(sizeof(Action)*(GameHeader.NumActions+1));
-    Verbs=(char **)MemAlloc(sizeof(char *)*(GameHeader.NumWords+1));
-    Nouns=(char **)MemAlloc(sizeof(char *)*(GameHeader.NumWords+1));
+    Verbs=(uint8_t **)MemAlloc(sizeof(uint8_t *)*(GameHeader.NumWords+1));
+    Nouns=(uint8_t **)MemAlloc(sizeof(uint8_t *)*(GameHeader.NumWords+1));
     Rooms=(Room *)MemAlloc(sizeof(Room)*(GameHeader.NumRooms+1));
-    Messages=(char **)MemAlloc(sizeof(char *)*(GameHeader.NumMessages+1));
     Items=(Item *)MemAlloc(sizeof(Item)*(GameHeader.NumItems+1));
+
+#if defined(__C128__)
+    MessageLen=(uint8_t *)MemAlloc(sizeof(uint8_t *)*(GameHeader.NumMessages+1));
+#else
+    Messages=(uint8_t **)MemAlloc(sizeof(uint8_t *)*(GameHeader.NumMessages+1));
+#endif
 
     ct=0;
     ap=Actions;
     DebugMessage(loud, "actions", GameHeader.NumActions+1);
     while(ct < GameHeader.NumActions+1) {
-        if(mode==0) {
+        if(mode==BDAT_MODE) {
             cbm_read(filenum, ap, sizeof(Action));
         } else {
             ap->Vocab=(short)cbm_read_next(filenum);
@@ -394,7 +418,7 @@ void LoadDatabase(char *filename, uint8_t loud) {
     ct=0;
     DebugMessage(loud, "pairs", GameHeader.NumWords+1);
     while(ct < GameHeader.NumWords+1) {
-        if(mode==0) {
+        if(mode==BDAT_MODE) {
             Verbs[ct]=LoadString(filenum);
             Nouns[ct]=LoadString(filenum);
         } else {
@@ -411,7 +435,7 @@ void LoadDatabase(char *filename, uint8_t loud) {
     rp=Rooms;
     DebugMessage(loud, "rooms", GameHeader.NumRooms+1);
     while(ct < GameHeader.NumRooms+1) {
-        if(mode==0) {
+        if(mode==BDAT_MODE) {
             cbm_read(filenum, rp->Exits, 6 * sizeof(uint16_t));
             rp->Text = LoadString(filenum);
             a2p_string(rp->Text, 0);
@@ -434,12 +458,26 @@ void LoadDatabase(char *filename, uint8_t loud) {
     ct=0;
     DebugMessage(loud, "messages", GameHeader.NumMessages+1);
     while(ct < GameHeader.NumMessages+1) {
-        if(mode==0) {
-            Messages[ct]=LoadString(filenum);
-            a2p_string(Messages[ct], 0);
+        if(mode==BDAT_MODE) {
+            mp=LoadString(filenum);
+            a2p_string(mp, 0);
         } else {
-            Messages[ct]=ReadString(filenum,1);
+            mp=ReadString(filenum,1);
         }
+#if defined(__C128__)
+        {
+            struct em_copy copyinfo;
+            MessageLen[ct] = strlen(mp)+1;
+            copyinfo.offs  = 0;
+            copyinfo.page  = ct;
+            copyinfo.buf   = mp;
+            copyinfo.count = MessageLen[ct];
+            em_copyto (&copyinfo);
+            free(mp); // Message stored in em free bank 0
+        }
+#else
+        Messages[ct]=mp;
+#endif
         ct++;
         if(loud) {
             print_char('.');
@@ -450,7 +488,7 @@ void LoadDatabase(char *filename, uint8_t loud) {
     ip=Items;
     DebugMessage(loud, "items", GameHeader.NumItems+1);
     while(ct < GameHeader.NumItems+1) {
-        if(mode==0) {
+        if(mode==BDAT_MODE) {
             ip->Text=LoadString(filenum);
             ip->AutoGet=LoadString(filenum);
             // SF likes Autoget to be NULL not empty
@@ -465,7 +503,7 @@ void LoadDatabase(char *filename, uint8_t loud) {
             ip->AutoGet=strchr(ip->Text,'/');
             // Some games use // to mean no auto get/drop word!
             if(ip->AutoGet && strcmp(ip->AutoGet,"//") && strcmp(ip->AutoGet,"/*")) {
-                char *t;
+                uint8_t *t;
                 *ip->AutoGet++=0;
                 t=strchr(ip->AutoGet,'/');
                 if(t!=NULL) {
@@ -483,13 +521,13 @@ void LoadDatabase(char *filename, uint8_t loud) {
         }
     }
 
-    /* Discard Comment Strings */
+    // Discard Comment Strings
     ct=0;
     while(ct < GameHeader.NumActions+1) {
-        if(mode==0) {
-        free(LoadString(filenum)); // load it and free it
+        if(mode==BDAT_MODE) {
+            free(LoadString(filenum));
         } else {
-            free(ReadString(filenum,0)); // Discard Comment Strings
+            free(ReadString(filenum,0));
         }
         ct++;
         if(loud) {
@@ -500,7 +538,7 @@ void LoadDatabase(char *filename, uint8_t loud) {
     if(loud) {
         uint16_t adv = 0;
         uint16_t v = 0;
-        if(mode==0) {
+        if(mode==BDAT_MODE) {
             cbm_read(filenum, &v, 2);
             cbm_read(filenum, &adv, 2);
         } else {
@@ -519,9 +557,6 @@ void LoadDatabase(char *filename, uint8_t loud) {
     cbm_close(filenum);
 }
 
-uint8_t OutputPos=0;
-
-// TODO: asm opt
 void clreol() {
     uint8_t x=0, y=0;
     x=wherex();
@@ -538,15 +573,15 @@ void OutReset()
 }
 
 // note: can't use global block buffer, would overlap from Output()
-void OutBuf(char *buffer) {
-    char word[80]; 
+void OutBuf(uint8_t *buffer) {
+    uint8_t word[80]; 
     uint8_t wp;
 
     while(*buffer) {
         if(OutputPos==0) {
-            while(*buffer && isspace(*buffer)) { // TODO: opt for isspace?
+            while(*buffer && is_space(*buffer)) {
                 if(*buffer=='\n') {
-                    print(EOL); // c128/c64
+                    print(EOL);
                     OutputPos=0;
                 }
                 buffer++;
@@ -556,12 +591,12 @@ void OutBuf(char *buffer) {
             return;
         }
         wp=0;
-        while(*buffer && !isspace(*buffer)) { // TODO: opt for isspace?
+        while(*buffer && !is_space(*buffer)) {
             word[wp++]=*buffer++;
         }
         word[wp]=0;
         if(OutputPos+strlen(word)>(Width-2)) {
-            print(EOL); // c128/c64
+            print(EOL);
             OutputPos=0;
         } else {
             gotoxy(OutputPos+0, wherey());
@@ -572,7 +607,7 @@ void OutBuf(char *buffer) {
             return;
         }
         if(*buffer=='\n' || *buffer=='\r') {
-            print(EOL); // c128/c64
+            print(EOL);
             OutputPos=0;
         } else {
             OutputPos++;
@@ -589,7 +624,7 @@ void OutBuf(char *buffer) {
 void OutputPetscii(char* text, uint8_t mode) {
     uint8_t ct = 0;
 
-    strcpy(block, text); // TODO: asm opt?
+    strcpy(block, text);
     do {
         if(text[ct]==0) {
             break;
@@ -597,6 +632,7 @@ void OutputPetscii(char* text, uint8_t mode) {
         block[ct] = a2p(block[ct]);
         ct++;
     } while(1);
+    // Use OutBuf or just print, OutBuf handles word wrapping
     if(mode==0) {
         OutBuf(block);
     } else {
@@ -610,18 +646,44 @@ void Output (char* text) {
     OutBuf(block);
 }
 
-void OutputNumber(int num) {
-    OutBuf((char *)bufnum32(num)); // Note: doesn't print signed
+void OutputNumber(uint16_t num) {
+    OutBuf((uint8_t *)bufnum16(num)); // Note: doesn't print signed
 }
 
+// Note: Uses global block buffer
+void OutputMessage(uint8_t ct) {
+#if defined(__C128__)
+    // copy message down from bank 1 and call OutBuf
+    struct em_copy copyinfo;
+    copyinfo.offs  = 0;
+    copyinfo.page  = ct;
+    copyinfo.buf   = block;
+    copyinfo.count = MessageLen[ct];
+    em_copyfrom (&copyinfo);
+    OutBuf(block);
+#else
+    Output(Messages[ct]);
+#endif
+}
+
+// Handle output room description/state to "top area"
 void Look(uint8_t cs) {
-    static char *ExitNames[6]= {
+    static uint8_t *ExitNames[6]= {
         "North","South","East","West","Up","Down"
     };
     Room *r;
     uint8_t ct,f;
     uint8_t pos;
     uint8_t xp,yp;
+
+#if defined(__C128__)
+    // c128 will push text down if any of this top text goes past the end of line
+    // disable screen scroll while printing to top area.
+    // Thanks TFM!
+    uint8_t f8;
+    f8 = PEEK(SCROLL);      // Save value
+    POKE(SCROLL, f8 | 64);  // disable scroll
+#endif
 
     // if clear screen is set, save x/y cursor for later, then clear
     if(cs == 1) {
@@ -638,35 +700,38 @@ void Look(uint8_t cs) {
             && Items[LIGHT_SOURCE].Location!= MyLoc) {
         if(Options&YOUARE) {
             print("You can't see. It is too dark!");
-            print(EOL); // c128/c64
+            print(EOL);
         } else {
             print("I can't see. It is too dark!");
-            print(EOL); // c128/c64
+            print(EOL);
         }
         gotoxy(xp,yp);
+#if defined(__C128__)
+        POKE(SCROLL, f8); // restore bit 6 of $f8 (logical line)
+#endif
         return;
     }
     r=&Rooms[MyLoc];
     if(*r->Text=='*')
     {
         print(r->Text+1);
-        print(EOL); // c128/c64
+        print(EOL);
     }
     else
     {
         if(Options&YOUARE) {
             print("You are ");
             print(r->Text);
-            print(EOL); // c128/64
+            print(EOL);
         } else {
             print("I'm in a ");
             print(r->Text);
-            print(EOL); // c128/64
+            print(EOL);
         }
     }
     ct=0;
     f=0;
-    print(EOL); // c128/c64
+    print(EOL);
     print("Obvious exits: ");
     while(ct<6) {
         if(r->Exits[ct]!=0) {
@@ -683,7 +748,7 @@ void Look(uint8_t cs) {
         print("none");
     }
     print(".");
-    print(EOL); // c128/c64
+    print(EOL);
     ct=0;
     f=0;
     pos=0;
@@ -691,10 +756,10 @@ void Look(uint8_t cs) {
         if(Items[ct].Location==MyLoc) {
             if(f==0) {
                 if(Options&YOUARE) {
-                    print(EOL); // c128/c64
+                    print(EOL);
                     print("You can also see: ");
                 } else {
-                    print(EOL); // c128/c64
+                    print(EOL);
                     print("I can also see: ");
                 }
                 pos=16;
@@ -705,7 +770,7 @@ void Look(uint8_t cs) {
             }
             if(pos+strlen(Items[ct].Text)>(Width-5)) { // was 10
                 pos=0;
-                print(EOL); // c128/c64
+                print(EOL);
             }
             OutputPetscii(Items[ct].Text, 1);
             pos += strlen(Items[ct].Text);
@@ -713,18 +778,20 @@ void Look(uint8_t cs) {
         ct++;
     }
     clreol();
-    print(EOL); // c128/c64
+    print(EOL);
     clreol();
-
+#if defined(__C128__)
+    POKE(SCROLL, f8); // restore bit 6 of $f8 (logical line)
+#endif
     if(cs == 1) {
         gotoxy(xp,yp); // put cursor back
     }
 }
 
-int8_t WhichWord(char *word, char **list) {
+int8_t WhichWord(uint8_t *word, uint8_t **list) {
     uint8_t n=1;
     uint8_t ne=1;
-    char *tp;
+    uint8_t *tp;
 
     while(ne<=GameHeader.NumWords) {
         tp=list[ne];
@@ -741,6 +808,7 @@ int8_t WhichWord(char *word, char **list) {
     return(-1);
 }
 
+// SetColors and Color Change for the C128
 #if defined(__C128__)
 void SetColors(uint8_t text, uint8_t border, uint8_t bg) {
     currentTextcolor = text & 15;
@@ -850,17 +918,9 @@ void ColorChange(uint8_t code) {
     bgcolor(curB & 15);
     Look(1);
 }
-#else
-
-void ColorChange(uint8_t code) {
-    // Not implemented
-    code=code;
-}
-
 #endif
 
-// TODO opt as asm?
-void LineInput(char *buf, uint8_t max) {
+void LineInput(uint8_t *buf, uint8_t max) {
     uint8_t pos=0;
     uint8_t ch;
     
@@ -873,10 +933,10 @@ void LineInput(char *buf, uint8_t max) {
             case 10:;
             case 13:;
                 buf[pos]=0;
-                print(EOL); // c128/c64
+                print(EOL);
                 return;
             case 8:;
-            case 20:; // c64 DEL
+            case 20:; // c64/c128 DEL key
             case 127:;
                 if(pos>0) {
                     print("\010");
@@ -884,7 +944,7 @@ void LineInput(char *buf, uint8_t max) {
                 }
                 break;
             default:
-                if(ch >= CH_F1 && ch <= CH_F8) { // Fkeys
+                if(ch >= CH_F1 && ch <= CH_F8) { // c64/c128 Check for Fkeys
                      ColorChange(ch);
                 }
                 if(ch >= ' ' && ch <= 126) {
@@ -898,8 +958,8 @@ void LineInput(char *buf, uint8_t max) {
 
 // Note: Can't use global block buffer, also reduced to 80 characters
 void GetInput(int8_t* vb, int8_t* no) {
-    char buf[80];
-    char verb[10],noun[10];
+    uint8_t buf[80];
+    uint8_t verb[10],noun[10];
     int8_t vc=0,nc=0;
     int8_t num=0;
     do {
@@ -908,7 +968,7 @@ void GetInput(int8_t* vb, int8_t* no) {
             Look(1); // hack: refresh the top here after c64 scroll, etc.
             LineInput(buf, 80);
             OutReset();
-            num=parseVerbNoun(buf, 9, verb, noun); // "sscanf"
+            num=parse_verb_noun(buf, 9, verb, noun); // "sscanf"
         } while(num<=0||*buf=='\n');
         if(num==1) {
             *noun=0;
@@ -951,22 +1011,22 @@ void GetInput(int8_t* vb, int8_t* no) {
     strcpy(NounText,noun); // Needed by GET/DROP hack
 }
 
-void cbm_write_value(uint8_t filenum, uint32_t value, char *end) {
-    char *num;
-    num = (char *)bufnum32(value);
-    cbm_write(filenum, (char *)num, num[11]); // hack buffer has size at + 11 :/
+void cbm_write_value(uint8_t filenum, uint32_t value, uint8_t *end) {
+    uint8_t *num;
+    num = (uint8_t *)bufnum32(value);
+    cbm_write(filenum, (uint8_t *)num, num[11]); // hack buffer has size at + 11 :/
     cbm_write(filenum, end, 1);
 }
 
 // Note: Can't use global block buffer, used to save last saved game file name
 void SaveGame() {
     // Note: static variables maintain values, sloppy cheat to keep saved game name
-    char filename[32];
+    uint8_t filename[32];
     uint8_t ct=0;
     uint8_t filenum=1;
     uint8_t device=PEEK(CBM_CURRENT_DEVICE_NUMBER);
-    char *sp=" ";
-    char *cr="\n";
+    uint8_t *sp=" ";
+    uint8_t *cr="\n";
     Output("Filename: ");
     LineInput(filename, 32);
     Output("\n");
@@ -1002,7 +1062,7 @@ void SaveGame() {
     Output("Saved.\n");
 }
 
-void LoadGame(char *name) {
+void LoadGame(uint8_t *name) {
     uint8_t ct=0;
     uint8_t filenum=1;
     uint8_t device=PEEK(CBM_CURRENT_DEVICE_NUMBER);
@@ -1069,18 +1129,15 @@ void FreshGame() {
 
 // This determines if we should load a saved game again
 // or start a fresh game again.
-// Option -r enabled loading saved game
-void NewGame() {
+void NewGame(uint8_t ch) {
     ClearScreen();
-
-    if(SavedGame != NULL && (Options&RESTORE_SAVED_ON_RESTART)) {
-        LoadGame(SavedGame);
-    } else {
+    if( SavedGame == NULL || ch == 'r' || ch == 'R' ) {
         FreshGame();
+    } else {
+        LoadGame(SavedGame);
     }
 }
 
-// TODO: asm opt
 uint8_t PerformLine(uint8_t ct) {
     uint8_t continuation=0;
     uint8_t pptr=0;
@@ -1206,10 +1263,10 @@ uint8_t PerformLine(uint8_t ct) {
     pptr=0;
     while(cc<4) {
         if(act[cc]>=1 && act[cc]<52) {
-            Output(Messages[act[cc]]);
+            OutputMessage(act[cc]);
             Output("\n");
         } else if(act[cc]>101) {
-            Output(Messages[act[cc]-50]);
+            OutputMessage(act[cc]-50);
             Output("\n");
         } else switch(act[cc]) {
             case ACTION_NOP:
@@ -1278,7 +1335,6 @@ uint8_t PerformLine(uint8_t ct) {
             case ACTION_GAME_OVER:
                 // Note: death/game over
                 Output("The game is now over.\n");
-                cgetc();
                 Restart=1; // just restart
                 break;
             case ACTION_DESC_ROOM:
@@ -1306,7 +1362,6 @@ uint8_t PerformLine(uint8_t ct) {
                 Output(".\n");
                 if(n==GameHeader.Treasures) {
                     Output("Well done.\nThe game is now over.\n");
-                    cgetc();
                     Restart=1; // just restart
                 }
                 break;
@@ -1477,20 +1532,19 @@ uint8_t PerformLine(uint8_t ct) {
     return(1+continuation);
 }
 
-
 int8_t PerformActions(int8_t vb,int8_t no) {
     static uint8_t disable_sysfunc=0;
     uint8_t d=BitFlags&(1L<<DARKBIT);
     
-    uint8_t ct=0; // opt // int ct=0;
-    int8_t fl; // opt // int fl;
-    uint8_t doagain=0; // opt // int doagain=0;
+    uint8_t ct=0;
+    int8_t fl;
+    uint8_t doagain=0;
     if(vb==VERB_GO && no == -1 ) {
         Output("Give me a direction too.\n");
         return(0);
     }
     if(vb==VERB_GO && no>=1 && no<=6) {
-        uint8_t nl; // opt // int nl;
+        uint8_t nl;
         if(Items[LIGHT_SOURCE].Location==MyLoc ||
            Items[LIGHT_SOURCE].Location==CARRIED) {
                d=0;
@@ -1511,7 +1565,6 @@ int8_t PerformActions(int8_t vb,int8_t no) {
             } else {
                 Output("I fell down and broke my neck.\n");
             }
-            cgetc();
             Restart=1;
             return(0);
         }
@@ -1708,7 +1761,7 @@ void CheckLight() {
 }
 
 // Main Game Loop here
-void GameLoop() {
+uint8_t GameLoop() {
     int8_t vb=0,no=0;
 
     while(1) {
@@ -1716,7 +1769,16 @@ void GameLoop() {
         PerformActions(0,0);
         if(Restart!=0) {
             Restart=0;
-            return; // Returns, Outer loop
+            print("\nPress ");
+            if (SavedGame!=NULL) {
+                print("L to load \"");
+                print(SavedGame);
+                print("\"\nOR Press R to restart\n");
+                return(cgetc()); // Returns to outer loop
+            }
+            print("any key to restart\n");
+            cgetc();
+            return('r');
         } else {
             GetInput(&vb,&no);
             switch(PerformActions(vb,no)) {
@@ -1734,13 +1796,13 @@ void GameLoop() {
 
 // Parse arg to Options, or fail
 // return sargument offset for remaining args: (dat/bdat, savegame)
-uint8_t ParseArgs(uint8_t argc, char *argv[]) {
+uint8_t ParseArgs(uint8_t argc, uint8_t *argv[]) {
     uint8_t argo = 0;
     while(argv[1]) {
-        if(*argv[1]!='-')
+        if(*argv[1]!='-') {
             break;
-        switch(argv[1][1])
-        {
+        }
+        switch(argv[1][1]) {
             case 'y':
                 Options|=YOUARE;
                 break;
@@ -1756,14 +1818,11 @@ uint8_t ParseArgs(uint8_t argc, char *argv[]) {
             case 'p':
                 Options|=PREHISTORIC_LAMP;
                 break;
-            case 'r':
-                Options|=RESTORE_SAVED_ON_RESTART;
-                break;
             case 'h':
             default:
                 print(argv[0]);
-                print(": [-h] [-y] [-s] [-i] [-d] [-p] [-r] <gamename> [savedgame].\n\r");
-                print(" -h:help\n\r -y:'you are'\n\r -s:scottlight\n\r -i:'i am'\n\r -d:debug\n\r -p:old lamp behavior\n\r -r:restore recent save on restart\n\r gamename:required\n\r savedgame:optional\n\r");
+                print(": [-h] [-y] [-s] [-i] [-d] [-p] <gamename> [savedgame].\n\r");
+                print(" -h:help\n\r -y:'you are'\n\r -s:scottlight\n\r -i:'i am'\n\r -d:debug\n\r -p:old lamp behavior\n\r gamename:required\n\r savedgame:optional\n\r");
                 exit(1);
         }
         if(argv[1][2]!=0) {
@@ -1774,9 +1833,9 @@ uint8_t ParseArgs(uint8_t argc, char *argv[]) {
             print("does not take a parameter.\n\r");
             exit(1);
         }
-        argv++;
-        argc--;
-        argo++;
+        argv++; // next arg
+        argc--; // one less arg to process
+        argo++; // count the options
     }
 
     if(argc!=2 && argc!=3) {
@@ -1787,15 +1846,15 @@ uint8_t ParseArgs(uint8_t argc, char *argv[]) {
     return(argo);
 }
 
-void GameSetup(char *filename, char *savedgame) {
+void GameSetup(uint8_t *filename, uint8_t *savedgame) {
     uint8_t textColor = COLOR_BLACK;
     uint8_t bgcolorColor = COLOR_GRAY1;
     TopHeight = 10;
 #if defined(__C128__)
     if((PEEK(C128_MODE) & C128_MODE_80COL) == C128_MODE_80COL) {
         Width = 80;
-        videomode(VIDEOMODE_80COL);
-        fast();
+        //videomode(VIDEOMODE_80COL);
+        fast(); // enable 2mhz mode
     } else {
         Width = 40;
     }
@@ -1824,7 +1883,18 @@ Distributed under the GNU software\nlicense\n\n");
     print(filename);
     print_char('\n');
 
+#if defined(__C128__)
+    // Install em ram bank 1 driver
+    em_install(&c128_ram_emd);
+#endif
+
     LoadDatabase(filename,(Options&DEBUGGING)?1:0);  // load DAT/BDAT file
+
+    // DEBUG
+    //print("MemFree(");
+    //print_number(_heapmemavail());
+    //print(")\n");
+    //cgetc();
 
     // Load Saved Game
     if(savedgame!=NULL) {
@@ -1833,10 +1903,6 @@ Distributed under the GNU software\nlicense\n\n");
 
     // seed from c64/c128 $a2 and $d012
     srand((PEEK(CBM_TIME_LOW) << 8) | (PEEK(VIC.rasterline)));
-
-    print("MemFree(");
-    print_number(_heapmemavail());
-    print(")\n");
 
     // Initial Colors
 #if defined(__C128__)
@@ -1848,7 +1914,7 @@ Distributed under the GNU software\nlicense\n\n");
 #endif
 }
 
-uint8_t main(uint8_t argc, char *argv[]) {
+uint8_t main(uint8_t argc, uint8_t *argv[]) {
     int8_t argo = 0;
     argo = ParseArgs(argc, argv);
 
@@ -1860,8 +1926,7 @@ uint8_t main(uint8_t argc, char *argv[]) {
         ClearScreen();
         gotoxy(0, TopHeight+1);
         Redraw = 1;
-        GameLoop(); // Loops until Restart flag set;
-        NewGame();
+        NewGame(GameLoop()); // Loops until Restart flag set;
     }
     return(0);
 }
