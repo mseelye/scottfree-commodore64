@@ -47,7 +47,7 @@ typedef struct {
 typedef struct
 {
     char *Text;
-    unsigned char Exits[6]; // Note: originally this was: short Exits[6];
+    short Exits[6];
 } Room;
 
 typedef struct

@@ -1,0 +1,4 @@
+During testing I had my "Light run out" in a game where it should have been unlimited.
+    Not sure what caused this, suspected LoadGame/SaveGame, but everything seems correct.
+Save Game - C128 mode, locks up in vice.
+    If you try to save to a file that already exists, it locks up.

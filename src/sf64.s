@@ -99,10 +99,8 @@ _print_signed_8:
         jsr _print_char
 print:  lda _v
         jsr _bufnum8
-        sty _len        ; length
         jsr _print
         rts
-_len: .byte 0
 _v: .byte 0
 .endscope
 

@@ -72,7 +72,7 @@
 #include <cbm.h>            // cbm_read, cbm_open, cbm_close
 #include <unistd.h>         // sleep
 #include <stdint.h>         // [u]int[8|16|32]_t (also included with one of the above^)
-
+#include <errno.h>
 #include "scottfree64.h"    // various constants used for the c64/c128 versions
 #include "scottfree.h"      // original SCOTT.H header file from 1.14b
 #include "sf64.h"           // header file for optimized asm routines for c64/c128
@@ -310,7 +310,7 @@ char* ReadString (uint8_t filenum, uint8_t ca2p) {
     return(sp);
 }
 
-void DebugMessage(uint8_t loud, uint8_t *msg, uint16_t num) {
+void LoadingMessage(uint8_t loud, uint8_t *msg, uint16_t num) {
     if(loud) {
         print_char('\n');
         print_number(num);
@@ -407,7 +407,7 @@ void LoadDatabase(uint8_t *filename, uint8_t loud) {
 
     ct=0;
     ap=Actions;
-    DebugMessage(loud, "actions", GameHeader.NumActions+1);
+    LoadingMessage(loud, "actions", GameHeader.NumActions+1);
     while(ct < GameHeader.NumActions+1) {
         if(mode==BDAT_MODE) {
             cbm_read(filenum, ap, sizeof(Action));
@@ -429,7 +429,7 @@ void LoadDatabase(uint8_t *filename, uint8_t loud) {
     }
 
     ct=0;
-    DebugMessage(loud, "pairs", GameHeader.NumWords+1);
+    LoadingMessage(loud, "pairs", GameHeader.NumWords+1);
     while(ct < GameHeader.NumWords+1) {
         if(mode==BDAT_MODE) {
             Verbs[ct]=LoadString(filenum);
@@ -446,7 +446,7 @@ void LoadDatabase(uint8_t *filename, uint8_t loud) {
 
     ct=0;
     rp=Rooms;
-    DebugMessage(loud, "rooms", GameHeader.NumRooms+1);
+    LoadingMessage(loud, "rooms", GameHeader.NumRooms+1);
     while(ct < GameHeader.NumRooms+1) {
         if(mode==BDAT_MODE) {
             cbm_read(filenum, rp->Exits, 6 * sizeof(uint16_t));
@@ -469,7 +469,7 @@ void LoadDatabase(uint8_t *filename, uint8_t loud) {
     }
 
     ct=0;
-    DebugMessage(loud, "messages", GameHeader.NumMessages+1);
+    LoadingMessage(loud, "messages", GameHeader.NumMessages+1);
     while(ct < GameHeader.NumMessages+1) {
         if(mode==BDAT_MODE) {
             mp=LoadString(filenum);
@@ -504,7 +504,7 @@ void LoadDatabase(uint8_t *filename, uint8_t loud) {
 
     ct=0;
     ip=Items;
-    DebugMessage(loud, "items", GameHeader.NumItems+1);
+    LoadingMessage(loud, "items", GameHeader.NumItems+1);
     while(ct < GameHeader.NumItems+1) {
         if(mode==BDAT_MODE) {
             ip->Text=LoadString(filenum);
@@ -541,7 +541,7 @@ void LoadDatabase(uint8_t *filename, uint8_t loud) {
 
     // Discard Comment Strings
     ct=0;
-    DebugMessage(loud, "comments", GameHeader.NumActions+1);
+    LoadingMessage(loud, "comments", GameHeader.NumActions+1);
     while(ct < GameHeader.NumActions+1) {
         if(mode==BDAT_MODE) {
             free(LoadString(filenum));
@@ -1035,13 +1035,14 @@ void GetInput(int8_t* vb, int8_t* no) {
 void cbm_write_value(uint8_t filenum, uint32_t value, uint8_t *end) {
     uint8_t *num;
     num = (uint8_t *)bufnum32(value);
-    cbm_write(filenum, (uint8_t *)num, num[11]); // hack buffer has size at + 11 :/
+    cbm_write(filenum, (uint8_t *)num, num[11]); // Note: Hack, buffer has size at + 11, could replace with strlen :/
     cbm_write(filenum, end, 1);
 }
 
 // Note: Can't use global block buffer, used to save last saved game file name
+// Known Issue: the cc65's cbm_write for c128 will effectively lock up if you try to save over existing file.
 void SaveGame() {
-    // Note: static variables maintain values, sloppy cheat to keep saved game name
+    // Note: Hack, static variables maintain values, sloppy cheat to keep saved game name
     uint8_t filename[16];
     uint8_t ct=0;
     uint8_t filenum=1;
@@ -1065,6 +1066,7 @@ void SaveGame() {
     cbm_write_value(filenum, MyLoc, sp);
     cbm_write_value(filenum, CurrentCounter, sp);
     cbm_write_value(filenum, SavedRoom, sp);
+
     if(GameHeader.LightTime < 0) {
         cbm_write(filenum, "-1\n", 3);
     } else {
@@ -1078,9 +1080,13 @@ void SaveGame() {
     }
     cbm_close(filenum);
 
-    SavedGame = filename;
+    if(cbm_k_readst()) {
+        Output("Error Saving Game.\n");
+    } else {
+        Output("Saved.\n");
+    }
 
-    Output("Saved.\n");
+    SavedGame = filename;
 }
 
 void LoadGame(uint8_t *name) {
