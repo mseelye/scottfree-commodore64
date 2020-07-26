@@ -4,6 +4,9 @@ Again, all of the games in the [games](games) directory belong to the original a
 #### Ghost King by Jason Compton  
 * **[Ghost King](https://ifdb.tads.org/viewgame?id=pv6hkqi34nzn1tdy)** by [Jason Compton](http://twitter.com/jpcwrites) "Your father is dead and you're sure your uncle is responsible. You tried to tell your mother so. Instead of believing you, she married him. Now you're going to uncover the truth and set things right..."
 
+#### R (Pronounced: "Arrr...") by Steve aka therealeasterbunny  
+* **r.dat** [R](https://ifdb.tads.org/viewgame?id=rq7505rd58zsd82x)**
+
 #### Scott Adams Classic Adventures (SACA)  
 * **adv01.dat**      [Adventureland](https://ifdb.tads.org/viewgame?id=dy4ok8sdlut6ddj7)
 * **adv02.dat**      [Pirate Adventure (aka. Pirate's Cove)](https://ifdb.tads.org/viewgame?id=zya3mo3njj58hewi)
@@ -55,6 +58,6 @@ http://ifarchive.org/indexes/if-archiveXscott-adamsXgames.html
 **BDAT** Is a simple binary format based on the DAT format from ScottFree. I cobbled this together in an effort to decrease load times in ScottFree64. I will post a tool to convert DAT to BDAT and BDAT to DAT.  
 Check the source for how it loads. To use a bdat file you just use the bdat instead of the dat file.  
 Example:  
-`RUN:REM -R -D GHOSTKING.BDAT`  
+`RUN:REM -D GHOSTKING.BDAT`  
 
 See [BDAT-README.md](BDAT-README.md) for details on the BDAT format.

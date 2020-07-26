@@ -1,4 +1,4 @@
-## ScottFree64 - Reworking of ScottFree Revision 1.14b for the Commodore 64
+## ScottFree64/ScottFree128 - Reworking of ScottFree Revision 1.14b for the Commodore 64 and the Commodore 128
 
 **Source**:  [https://github.com/mseelye/scottfree-commodore64](https://github.com/mseelye/scottfree-commodore64)  
 **This Rework by**:  Mark Seelye <mseelye@yahoo.com>  
@@ -6,7 +6,7 @@
 **Copyright**:  
 Scott Free, A Scott Adams game driver in C.  
 Release 1.14b (PC), (c) 1993,1994,1995 Swansea University Computer Society.  
-Port to ScottFree64 Release 0.9, (c) 2020 Mark Seelye  
+Port to ScottFree64 Release 2.1.0, (c) 2020 Mark Seelye  
 Distributed under the GNU software license  
 **License**:   GNU GPL, version 2 - see [GPL-2.0.md](https://bitbucket.org/mseelye/scottfree-64/src/master/GPL-2.0.md)  
 
@@ -16,6 +16,7 @@ Distributed under the GNU software license
 * Jason Compton, who made a great Scott Adams-format game called "Ghost King" that inspired me to play around with Scott Adams Interpreters
 * "Ghost King" is available in the /games directory, and included with ScottFree 64 on the .d64 and .d81 disk images.
 * ALL the games in the /games directory belong to the authors who created them. I do not claim to have authored any of them, and I provide them here for the sake of convenience. I believe almost all of these came from [ifarchive.org](http://ifarchive.org/indexes/if-archiveXscott-adamsXinterpretersXscottfree.html)  
+* More thanks for all the testing, advice and encouragement from Jason Compton, Robin Harbron, Adrian Gonzalez (dW), Per (MagerValp), Oliver V.(Six), Bob S.(Dokken), David (jbevren) and Sam.
 
 ## Goals for this Project
 My goal here was to create a working version of ScottFree for the Commodore 64, with as few changes to the 1.14b SCOTT.C source as possible.
@@ -26,14 +27,16 @@ I also used this to explore cc65 again, which was a lot of fun.
 * ~~**EVERYTHING LOADS VERY SLOWLY**, this is just a direct port, no real optimizations.~~  Update: if you use the game files with the suffix bdat, they will load MUCH faster. BDAT is "Binary DAT" see the [BDAT-README](games/BDAT-README.md) for more information.
 
 * I removed some code that is not used. I also removed the -t TRS formatting option which forces display to 64 columns. This build of ScottFree uses the standard 40-column display.
-* Thanks to some feedback from Jason, I added some code to **RESTART** the currently loaded game because reloading the whole thing is super painful. (This is separate from the **-r** option!)
-* If you use the **-r** option it will also load your most recent save file when you restart the game by dying, winning, or quitting.
+* Thanks to some feedback from Jason, I added some code to **RESTART** the currently loaded game because reloading the whole thing is super painful.
+* ~~ If you use the **-r** option it will also load your most recent save file when you restart the game by dying, winning, or quitting. ~~ Game prompts now.
 * I hacked up the top/bottom display code to get the room desc appearing more consistently. 
 This is not as effecient as the original Redraw logic, but without making many changes this was the easiest way to avoid display issues.
 * I also have made yet-another-ncurses port that will compile and run on Windows(mingw/MSys2), MacOS, and linux (Tested on Ubuntu). I'll link that here once I finish that up.
 * Based on feedback that black text on grey is "blah" I added the ability to use the F-keys to change the text, border, and background colors. **F1/F2** to inc/dec text color, **F3/F4** inc/dec border color, **F5/F6** inc/dec background color, F7 to restore to glorious monochrome "blah", **F8** to pick random colors for all.
 * I've now completed some optimizations to replace some of the more bloated standard library calls with some custom ones.
 * The optimizations have allowed this to easily run on the c128, it auto-detects 40/80 column mode as well.
+* I've optimized memory usage on the Commodore 128, and can now store about 61k of "Messages" in Bank 1, making it able to run larger games, like "R (Pron, 'Arrr')".
+* I eliminated the -r option, and now just have the game prompt to reload the last save or restart when you die/win/quit.
 
 ## Enough, how do I play?
 You will need either a Commodore 64 emulator such as [Vice](https://vice-emu.sourceforge.io/), or some way to transfer the d64 or d81 files to a real 1541/1581 disk and play on your Commodore 64!  
@@ -49,15 +52,15 @@ Example:
 	LOAD "SCOTTFREE64",8,1  
 	LOADING  
 	READY  
-	RUN:REM -D -R GHOSTKING.DAT YORICK
+	RUN:REM -D GHOSTKING.DAT YORICK
 
 In order to pass command line arguments to the program, binaries made in cc65 need to be run with the special `:REM` argument.  
 
 The above statement is equivalent on a standard ScottFree target machine to  
 
-`scottfree -d -r ghostking.dat yorick`
+`scottfree -d ghostking.dat yorick`
 
-where `-d -r` are optional switches, `ghostking.dat` is the playable game file to load, and `yorick` is the optional saved game.  
+where `-d` is an optional switch, `ghostking.dat` is the playable game file to load, and `yorick` is the optional saved game.  
 
 The options available in this build are similar to the original ScottFree 1.14b:  
 
@@ -67,22 +70,22 @@ The options available in this build are similar to the original ScottFree 1.14b:
 * **-i**  Use "I am" mode. (Default behavior, expected by most Adams-format games)
 * **-d**  Debug. Shows detailed loading progress and data about the gamefile during the load.
 * **-p**  Use old or "prehistoric" lamp behavior. 
-* **-r**  The game will restart from with the MOST RECENTLY SAVED game when you die, win, or quit. When enabled, you must reset your c64 and reload everything to restart the game from the beginning.
+* ~~**-r**  The game will restart from with the MOST RECENTLY SAVED game when you die, win, or quit. When enabled, you must reset your c64 and reload everything to restart the game from the beginning.~~ Game now prompts you to reload save or resart.
 
 While in a game there are some other options available:  
 
-* **save game**  Most, if not all, games allow you to save your game at any point by typing **save game** and hitting enter. It will prompt you for a name, enter a name to use and press enter.  Note: if you used the **-r** option and you die, the system will automatically load the most recently saved game. To load a saved game when you start the program include the file name as the last argument when starting scottfree64. (see above)  
-* **quit**  Most, if not all, games allow you to quit the game by typing **quit** and hitting enter. If you used the **-r** option the game will then load the most recent save, otherwise it will restart the currently loaded game.  
+* **save game**  Most, if not all, games allow you to save your game at any point by typing **save game** and hitting enter. It will prompt you for a name, enter a name to use and press enter.  To load a saved game when you start the program include the file name as the last argument when starting scottfree64. (see above)  
+* **quit**  Most, if not all, games allow you to quit the game by typing **quit** and hitting enter. The game will prompt you to load the most recent save (if any) or restart the currently loaded game.  
 * **F1 / F2** Change text color  
 * **F3 / F4** Change border color  
 * **F5 / F6** Change background color  
 * **F7** Restore colors to starting colors (black text, grey background and border)  
 * **F8** Picks random colors for text, background and border.  
 
-## Commodore 128 version
+## Commodore 128 version!
 Follow the same steps above for the Commodore 64, except download the d64/d81 file called scottfree128.d64 or scottfree128.d81. 
 Also, you will need to instead load the README128 file: `LOAD "README128",8,1` 
-To run in 80 column mode, switch to 80 columns and load and run as described aboce while in 80 column mode. 
+To run in **80 column mode**, switch to 80 columns and load and run as described aboce while in 80 column mode. 
 
 To build the Commodore 128 version use: `SYS=c128 make clean all`
 

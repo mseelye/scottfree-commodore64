@@ -15,6 +15,7 @@ Note: For information on what all the DAT terms mean, and how these values are u
 
 Change log:  
 * 2020-07-04 - Initial Release!
+* 2020-07-26 - Update to account for Messages > 255 characters.
 
 
 #### Format Legend
@@ -169,7 +170,15 @@ The header specified 18 rooms, so 18 + 1, 19 total. There would be 16 more room 
 
 #### Messages
 Messages are simply strings.  The first string tends to be an empty string (length 00 + 00 null terminator), but I don't think that is a rule either.  
-String may contain carriage return and linefeed characters and quotation marks.
+String may contain carriage return and linefeed characters and quotation marks.  
+If a message is >= 255 characters (up to 510 characters) there is a length byte of 255, followed by an extra length byte.
+This second byte only appears if the first length byte was 255. This second length byte should be added to 255 to get the actual length of the Message.  
+Examples:  
+A message with a length of 254 or less would have 1 length byte: 0-254, followed by 0-254 message characters, followed by a 0.  
+A message with a length of 0 would have 1 length byte of 0, followed by another 0 as a terminator.  
+A message with a length of 255 would have 2 length bytes: a 255 followed by a 0, followed by 255 message characters, followed by a 0.  
+A message with a length of 510 would have 2 length bytes: a 255 followed by another 255, followed by 510 message characters, followed by a 0.  
+
 
 ```
 00000e70h:                         00 00|1A 44 72 69 6E 6B ;        ....Drink

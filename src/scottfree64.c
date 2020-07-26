@@ -86,10 +86,8 @@ Room *Rooms;
 uint8_t **Verbs;
 uint8_t **Nouns;
 Action *Actions;
-// c128 stores page, offset, and length in bank 0 and messages in bank 1
-#if defined(__C128__)
-    MessageInfo *Messages;
-#else
+// Note: c128 version stores page, offset, and length and all message data in bank 1
+#if defined(__C64__)
     uint8_t **Messages;
 #endif
 
@@ -399,9 +397,7 @@ void LoadDatabase(uint8_t *filename, uint8_t loud) {
     Rooms=(Room *)MemAlloc(sizeof(Room)*(GameHeader.NumRooms+1));
     Items=(Item *)MemAlloc(sizeof(Item)*(GameHeader.NumItems+1));
 
-#if defined(__C128__)
-    Messages=(MessageInfo *)MemAlloc(sizeof(MessageInfo)*(GameHeader.NumMessages+1));
-#else
+#if defined(__C64__)
     Messages=(uint8_t **)MemAlloc(sizeof(uint8_t *)*(GameHeader.NumMessages+1));
 #endif
 
@@ -480,9 +476,17 @@ void LoadDatabase(uint8_t *filename, uint8_t loud) {
 #if defined(__C128__)
         {
             struct em_copy copyinfo;
-            Messages[ct].page = currPage;
-            Messages[ct].offset = currOffset;
-            Messages[ct].length = lstrlen + 1;
+            MessageInfo messagedata;
+            // Write to Index
+            messagedata.page = currPage;
+            messagedata.offset = currOffset;
+            messagedata.length = lstrlen + 1;
+            copyinfo.page = 243 + ((ct * 4) / 256);
+            copyinfo.offs = (ct * 4) % 256;
+            copyinfo.count = 4;
+            copyinfo.buf = &messagedata;
+            em_copyto (&copyinfo);
+            // Write Data to location
             copyinfo.page  = currPage;
             copyinfo.offs  = currOffset;
             copyinfo.count = lstrlen + 1;
@@ -675,9 +679,17 @@ void OutputMessage(uint16_t ct) {
 #if defined(__C128__)
     // copy message down from bank 1 and call OutBuf
     struct em_copy copyinfo;
-    copyinfo.page  = Messages[ct].page;
-    copyinfo.offs  = Messages[ct].offset;
-    copyinfo.count = Messages[ct].length;
+    MessageInfo messagedata;
+    // Get Index:
+    copyinfo.page = 243 + ((ct * 4) / 256);
+    copyinfo.offs = (ct * 4) % 256;
+    copyinfo.count = 4;
+    copyinfo.buf = &messagedata;
+    em_copyfrom (&copyinfo);
+    // Get Message using index data:
+    copyinfo.page  = messagedata.page;
+    copyinfo.offs  = messagedata.offset;
+    copyinfo.count = messagedata.length;
     copyinfo.buf   = block;
     em_copyfrom (&copyinfo);
     OutBuf(block);
@@ -1916,10 +1928,10 @@ Distributed under the GNU software\nlicense\n\n");
     LoadDatabase(filename,(Options&DEBUGGING)?1:0);  // load DAT/BDAT file
 
     // DEBUG
-    //print("MemFree(");
-    //print_number(_heapmemavail());
-    //print(")\n");
-    //cgetc();
+    // print("MemFree(");
+    // print_number(_heapmemavail());
+    // print(")\n");
+    // cgetc();
 
     // Load Saved Game
     if(savedgame!=NULL) {
