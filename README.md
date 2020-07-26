@@ -70,7 +70,7 @@ The options available in this build are similar to the original ScottFree 1.14b:
 * **-i**  Use "I am" mode. (Default behavior, expected by most Adams-format games)
 * **-d**  Debug. Shows detailed loading progress and data about the gamefile during the load.
 * **-p**  Use old or "prehistoric" lamp behavior. 
-* ~~**-r**  The game will restart from with the MOST RECENTLY SAVED game when you die, win, or quit. When enabled, you must reset your c64 and reload everything to restart the game from the beginning.~~ Game now prompts you to reload save or resart.
+* ~~**-r**  The game will restart from with the MOST RECENTLY SAVED game when you die, win, or quit. When enabled, you must reset your c64 and reload everything to restart the game from the beginning.~~ Game now prompts you to reload save or restart.
 
 While in a game there are some other options available:  
 
@@ -85,7 +85,7 @@ While in a game there are some other options available:
 ## Commodore 128 version!
 Follow the same steps above for the Commodore 64, except download the d64/d81 file called scottfree128.d64 or scottfree128.d81. 
 Also, you will need to instead load the README128 file: `LOAD "README128",8,1` 
-To run in **80 column mode**, switch to 80 columns and load and run as described aboce while in 80 column mode. 
+To run in **80 column mode**, switch to 80 columns and load and run as described above while in 80 column mode. 
 
 To build the Commodore 128 version use: `SYS=c128 make clean all`
 
