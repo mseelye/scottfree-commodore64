@@ -1,7 +1,7 @@
 /*
  *  ScottFree-64 - a Reworking of ScottFree Revision 1.14b for the Commodore 64
  *  (C) 2020 - Mark Seelye / mseelye@yahoo.com
- *  Version 2.0.3
+ *  Version 2.1.0
  *  Heavier cbm optimizations.
  *  Commodore 128 and 80 Column Mode
  *
@@ -36,6 +36,7 @@
  *      sscanf linked in.
  *      I've also made use of bank 1 on the Commodore 128, storing all the messages there to save memory in bank 0.
  *      Added prompt to Load last save on death, or Restart
+ *      Rearranged messages in bank1 to be able to store messages up to 510 characters long.
  *
  *   Thanks:
  *      Big thanks for all the testing, advice and encouragement from Jason Compton, 
@@ -85,17 +86,17 @@ Room *Rooms;
 uint8_t **Verbs;
 uint8_t **Nouns;
 Action *Actions;
-// c128 stores length in bank 0 and messages in bank 1
+// c128 stores page, offset, and length in bank 0 and messages in bank 1
 #if defined(__C128__)
-    uint8_t *MessageLen;
+    MessageInfo *Messages;
 #else
     uint8_t **Messages;
 #endif
 
 uint8_t LightRefill = 0;
 uint8_t NounText[16];
-uint16_t Counters[16];          // Range unknown
-uint16_t CurrentCounter = 0;
+uint8_t Counters[16];          // Range unknown
+int16_t CurrentCounter = 0;
 uint8_t SavedRoom = 0;
 uint8_t RoomSaved[16];          // Range unknown
 uint8_t Redraw = 0;             // Update item window
@@ -140,11 +141,12 @@ void ClearTop(void) {
 }
 
 void *MemAlloc(uint16_t size) {
-    void *t=(void *)malloc(size);
+    void *t = NULL;
+    t = (void *)malloc(size);
     if(t==NULL) {
         print("malloc failed, size: ");
         print_number(size);
-        Fatal("Out of memory");
+        Fatal(" Out of memory");
     }
     return(t);
 }
@@ -237,13 +239,16 @@ uint32_t cbm_read_next(uint8_t filenum) {
     return(atol(block));
 }
 
+// Note: Hack, last loaded string length stored here - cheap/easy length
+uint16_t lstrlen = 0;
+
 // Note: uses common global block buffer, instead of local tmp buffer
 char* ReadString (uint8_t filenum, uint8_t ca2p) {
-    uint8_t ct=0;
-    uint8_t c=0, nc=0;
+    uint16_t ct=0;      // counter
+    uint8_t c=0, nc=0;  // character, next character
     uint8_t pbc = 0;    // pushback buffer, our "ungetch"
-    int8_t t = 0;
-    char* sp;           // result
+    int8_t t = 0;       // read result
+    char* sp;           // string pointer
 
     do {
         // check pushback buffer and take from there, otherwise read
@@ -299,12 +304,13 @@ char* ReadString (uint8_t filenum, uint8_t ca2p) {
         block[ct++]=c;
     } while(1);
     block[ct]=0;            // terminate string
+    lstrlen = ct;
     sp=MemAlloc(ct+1);      // allocate memory for string
     memcpy(sp,block,ct+1);  // copy string from buffer into allocated memory
     return(sp);
 }
 
-void DebugMessage(uint8_t loud, uint8_t *msg, uint8_t num) {
+void DebugMessage(uint8_t loud, uint8_t *msg, uint16_t num) {
     if(loud) {
         print_char('\n');
         print_number(num);
@@ -316,10 +322,16 @@ void DebugMessage(uint8_t loud, uint8_t *msg, uint8_t num) {
 // Load Binary DAT String ([length][bytes * length][0])
 uint8_t *LoadString(filenum) {
     uint8_t *string;
-    uint8_t length = 0; // Note: 255 char max
-    cbm_read(filenum, &length, 1);
-    string=(uint8_t *)MemAlloc((length+1) * sizeof(uint8_t));
-    cbm_read(filenum, string, (length+1) * sizeof(uint8_t));
+    // uint16_t length = 0; // Note: using global "lstrlen" so length can easily/cheaply be preserved
+    lstrlen = 0;
+    cbm_read(filenum, &lstrlen, 1);
+    // If length shows as 255, that means the next byte needs to be added to 255. (Max 510)
+    if(lstrlen==255) {
+        cbm_read(filenum, &lstrlen, 1);
+        lstrlen += 255;
+    }
+    string=(uint8_t *)MemAlloc(lstrlen+1);
+    cbm_read(filenum, string, lstrlen+1);
     return(string);
 }
 
@@ -346,10 +358,12 @@ uint8_t DetectMode(uint8_t *filename) {
 
 // Load Binary DAT or DAT File
 void LoadDatabase(uint8_t *filename, uint8_t loud) {
-    uint8_t ct=0;
+    uint16_t ct=0;
     uint8_t filenum=1;
     uint8_t device=PEEK(CBM_CURRENT_DEVICE_NUMBER);
     uint8_t mode=0;
+    uint8_t currPage = 0;
+    uint8_t currOffset = 0;
     Action *ap;
     Room *rp;
     Item *ip;
@@ -379,7 +393,6 @@ void LoadDatabase(uint8_t *filename, uint8_t loud) {
     InitialPlayerRoom=GameHeader.PlayerRoom;
     LightRefill=GameHeader.LightTime;
 
-    // Allocate this all here, may help with fragmentation
     Actions=(Action *)MemAlloc(sizeof(Action)*(GameHeader.NumActions+1));
     Verbs=(uint8_t **)MemAlloc(sizeof(uint8_t *)*(GameHeader.NumWords+1));
     Nouns=(uint8_t **)MemAlloc(sizeof(uint8_t *)*(GameHeader.NumWords+1));
@@ -387,7 +400,7 @@ void LoadDatabase(uint8_t *filename, uint8_t loud) {
     Items=(Item *)MemAlloc(sizeof(Item)*(GameHeader.NumItems+1));
 
 #if defined(__C128__)
-    MessageLen=(uint8_t *)MemAlloc(sizeof(uint8_t *)*(GameHeader.NumMessages+1));
+    Messages=(MessageInfo *)MemAlloc(sizeof(MessageInfo)*(GameHeader.NumMessages+1));
 #else
     Messages=(uint8_t **)MemAlloc(sizeof(uint8_t *)*(GameHeader.NumMessages+1));
 #endif
@@ -438,7 +451,7 @@ void LoadDatabase(uint8_t *filename, uint8_t loud) {
         if(mode==BDAT_MODE) {
             cbm_read(filenum, rp->Exits, 6 * sizeof(uint16_t));
             rp->Text = LoadString(filenum);
-            a2p_string(rp->Text, 0);
+            a2p_string(rp->Text);
         } else {
             rp->Exits[0]=(short)cbm_read_next(filenum);
             rp->Exits[1]=(short)cbm_read_next(filenum);
@@ -460,20 +473,25 @@ void LoadDatabase(uint8_t *filename, uint8_t loud) {
     while(ct < GameHeader.NumMessages+1) {
         if(mode==BDAT_MODE) {
             mp=LoadString(filenum);
-            a2p_string(mp, 0);
+            a2p_string(mp);
         } else {
             mp=ReadString(filenum,1);
         }
 #if defined(__C128__)
         {
             struct em_copy copyinfo;
-            MessageLen[ct] = strlen(mp)+1;
-            copyinfo.offs  = 0;
-            copyinfo.page  = ct;
+            Messages[ct].page = currPage;
+            Messages[ct].offset = currOffset;
+            Messages[ct].length = lstrlen + 1;
+            copyinfo.page  = currPage;
+            copyinfo.offs  = currOffset;
+            copyinfo.count = lstrlen + 1;
             copyinfo.buf   = mp;
-            copyinfo.count = MessageLen[ct];
             em_copyto (&copyinfo);
-            free(mp); // Message stored in em free bank 0
+            // page math: Move page forward for each set of 255 crossed
+            currPage += ((currOffset + lstrlen + 1) / 255);
+            currOffset = currOffset + lstrlen + 1; // currOffset is 8 bit, wraps around
+            free(mp); // Message stored in em now, free bank 0 buffer
         }
 #else
         Messages[ct]=mp;
@@ -523,6 +541,7 @@ void LoadDatabase(uint8_t *filename, uint8_t loud) {
 
     // Discard Comment Strings
     ct=0;
+    DebugMessage(loud, "comments", GameHeader.NumActions+1);
     while(ct < GameHeader.NumActions+1) {
         if(mode==BDAT_MODE) {
             free(LoadString(filenum));
@@ -554,6 +573,7 @@ void LoadDatabase(uint8_t *filename, uint8_t loud) {
         // skip magic number
         print("\nDone!\n");
     }
+
     cbm_close(filenum);
 }
 
@@ -574,7 +594,7 @@ void OutReset()
 
 // note: can't use global block buffer, would overlap from Output()
 void OutBuf(uint8_t *buffer) {
-    uint8_t word[80]; 
+    uint8_t word[40];  // max "word" length
     uint8_t wp;
 
     while(*buffer) {
@@ -591,7 +611,7 @@ void OutBuf(uint8_t *buffer) {
             return;
         }
         wp=0;
-        while(*buffer && !is_space(*buffer)) {
+        while(*buffer && !is_space(*buffer) && wp < 40) {
             word[wp++]=*buffer++;
         }
         word[wp]=0;
@@ -641,7 +661,7 @@ void OutputPetscii(char* text, uint8_t mode) {
 }
 
 // Note: Uses global block buffer
-void Output (char* text) {
+void Output(char* text) {
     strcpy(block, text);
     OutBuf(block);
 }
@@ -651,14 +671,14 @@ void OutputNumber(uint16_t num) {
 }
 
 // Note: Uses global block buffer
-void OutputMessage(uint8_t ct) {
+void OutputMessage(uint16_t ct) {
 #if defined(__C128__)
     // copy message down from bank 1 and call OutBuf
     struct em_copy copyinfo;
-    copyinfo.offs  = 0;
-    copyinfo.page  = ct;
+    copyinfo.page  = Messages[ct].page;
+    copyinfo.offs  = Messages[ct].offset;
+    copyinfo.count = Messages[ct].length;
     copyinfo.buf   = block;
-    copyinfo.count = MessageLen[ct];
     em_copyfrom (&copyinfo);
     OutBuf(block);
 #else
@@ -671,10 +691,11 @@ void Look(uint8_t cs) {
     static uint8_t *ExitNames[6]= {
         "North","South","East","West","Up","Down"
     };
-    Room *r;
-    uint8_t ct,f;
-    uint8_t pos;
-    uint8_t xp,yp;
+    Room *r = NULL;
+    uint8_t ct = 0;
+    uint8_t f = 0;
+    uint8_t pos = 0;
+    uint8_t xp = 0,yp = 0;
 
 #if defined(__C128__)
     // c128 will push text down if any of this top text goes past the end of line
@@ -1021,14 +1042,14 @@ void cbm_write_value(uint8_t filenum, uint32_t value, uint8_t *end) {
 // Note: Can't use global block buffer, used to save last saved game file name
 void SaveGame() {
     // Note: static variables maintain values, sloppy cheat to keep saved game name
-    uint8_t filename[32];
+    uint8_t filename[16];
     uint8_t ct=0;
     uint8_t filenum=1;
     uint8_t device=PEEK(CBM_CURRENT_DEVICE_NUMBER);
     uint8_t *sp=" ";
     uint8_t *cr="\n";
     Output("Filename: ");
-    LineInput(filename, 32);
+    LineInput(filename, 16);
     Output("\n");
     if (cbm_open(filenum, device, CBM_WRITE, filename)) {
         Output("Unable to create save file.\n");
@@ -1138,7 +1159,7 @@ void NewGame(uint8_t ch) {
     }
 }
 
-uint8_t PerformLine(uint8_t ct) {
+uint8_t PerformLine(uint16_t ct) {
     uint8_t continuation=0;
     uint8_t pptr=0;
     uint16_t cc=0;
@@ -1535,8 +1556,7 @@ uint8_t PerformLine(uint8_t ct) {
 int8_t PerformActions(int8_t vb,int8_t no) {
     static uint8_t disable_sysfunc=0;
     uint8_t d=BitFlags&(1L<<DARKBIT);
-    
-    uint8_t ct=0;
+    uint16_t ct=0;
     int8_t fl;
     uint8_t doagain=0;
     if(vb==VERB_GO && no == -1 ) {
@@ -1853,7 +1873,6 @@ void GameSetup(uint8_t *filename, uint8_t *savedgame) {
 #if defined(__C128__)
     if((PEEK(C128_MODE) & C128_MODE_80COL) == C128_MODE_80COL) {
         Width = 80;
-        //videomode(VIDEOMODE_80COL);
         fast(); // enable 2mhz mode
     } else {
         Width = 40;
@@ -1884,7 +1903,7 @@ Distributed under the GNU software\nlicense\n\n");
     print_char('\n');
 
 #if defined(__C128__)
-    // Install em ram bank 1 driver
+    // Install custom em ram bank 1 driver
     em_install(&c128_ram_emd);
 #endif
 

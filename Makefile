@@ -14,7 +14,7 @@
 #
 
 # Release Version
-VERSION = v2.0.3
+VERSION = v2.1.0
 
 # Determine what OS this is running on and adjust
 OSUNAME := $(shell uname)
@@ -95,7 +95,8 @@ DIST = $(DISTDIR)/$(TARGET)
 
 # Note: 16 character limit on filenames in a d64/d81 disk image
 #GAMES   := ghostking.dat sampler1.dat
-GAMES   := ghostking.dat sampler1.dat ghostking.bdat sampler1.bdat
+GAMES   := ghostking.dat sampler1.dat ghostking.bdat sampler1.bdat r.dat r.bdat
+#GAMES   := ghostking.dat sampler1.dat ghostking.bdat sampler1.bdat r.dat r.bdat teststrings.dat teststrings.bdat loadspls.dat loadspls.bdat
 SOURCES  := $(wildcard $(SRCDIR)/*.c)
 ASMSOURCES  := $(wildcard $(SRCDIR)/*.s)
 INCLUDES := $(wildcard $(SRCDIR)/*.h)
@@ -213,12 +214,12 @@ else
 	@$(C1541) -attach $@ -write games/adv09.dat adv09.dat
 	@$(C1541) -attach $@ -write games/adv10.dat adv10.dat
 	@$(C1541) -attach $@ -write games/adv11.dat adv11.dat
-	@$(C1541) -attach $@ -write games/adv12.dat adv12.dat
-	@$(C1541) -attach $@ -write games/adv13.dat adv13.dat
-	@$(C1541) -attach $@ -write games/adv14a.dat adv14a.dat
-	@$(C1541) -attach $@ -write games/adv14b.dat adv14b.dat
-	@$(C1541) -attach $@ -write games/quest1.dat quest1.dat
-	@$(C1541) -attach $@ -write games/quest2.dat quest2.dat
+#	@$(C1541) -attach $@ -write games/adv12.dat adv12.dat
+#	@$(C1541) -attach $@ -write games/adv13.dat adv13.dat
+#	@$(C1541) -attach $@ -write games/adv14a.dat adv14a.dat
+#	@$(C1541) -attach $@ -write games/adv14b.dat adv14b.dat
+#	@$(C1541) -attach $@ -write games/quest1.dat quest1.dat
+#	@$(C1541) -attach $@ -write games/quest2.dat quest2.dat
 	@$(C1541) -attach $@ -write games/1_baton.bdat 1-baton.bdat
 	@$(C1541) -attach $@ -write games/2_timemachine.bdat 2-timemach.bdat
 	@$(C1541) -attach $@ -write games/3_arrow1.bdat 3-arrow1.bdat
@@ -246,7 +247,7 @@ else
 	@$(C1541) -attach $@ -write games/adv14a.bdat adv14a.bdat
 	@$(C1541) -attach $@ -write games/adv14b.bdat adv14b.bdat
 	@$(C1541) -attach $@ -write games/quest1.bdat quest1.bdat
-#	@$(C1541) -attach $@ -write games/quest2.bdat quest2.bdat
+	@$(C1541) -attach $@ -write games/quest2.bdat quest2.bdat
 # add your games
 #	@$(C1541) -attach $@ -write games/hold_the_snappy.dat snappy.dat
 #	@$(C1541) -attach $@ -write games/fish.dat fish.dat

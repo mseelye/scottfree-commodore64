@@ -1,4 +1,4 @@
-src/*.s
+src/scott*.s
 out
 dist
 bin

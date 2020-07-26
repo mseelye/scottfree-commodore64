@@ -7,6 +7,12 @@
 #define C128_MODE_80COL 0x80
 #define SCROLL 0xf8
 
+typedef struct {
+    uint8_t page;
+    uint8_t offset;
+    uint16_t length;
+} MessageInfo;
+
 #elif defined(__C64__)
 
 #define EOL "\n\r"
