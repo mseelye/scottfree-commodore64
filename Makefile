@@ -96,6 +96,7 @@ DIST = $(DISTDIR)/$(TARGET)
 # Note: 16 character limit on filenames in a d64/d81 disk image
 #GAMES   := ghostking.dat sampler1.dat
 GAMES   := ghostking.dat sampler1.dat ghostking.bdat sampler1.bdat r.dat r.bdat
+#GAMES   := ghostking.dat ghostking.bdat maxstrings.bdat teststrings.bdat
 #GAMES   := ghostking.dat sampler1.dat ghostking.bdat sampler1.bdat r.dat r.bdat teststrings.dat teststrings.bdat loadspls.dat loadspls.bdat
 SOURCES  := $(wildcard $(SRCDIR)/*.c)
 ASMSOURCES  := $(wildcard $(SRCDIR)/*.s)

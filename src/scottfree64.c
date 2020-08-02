@@ -107,11 +107,15 @@ uint8_t InitialPlayerRoom = 0;  // added to help with restarting w/o reloading s
 uint8_t block[512];             // global buffer, used by multiple functions for temp storage
 uint8_t OutputPos=0;            // Output position on line
 
-// c128 shadow values so don't have to do VDC hoops in 80col mode
 #if defined(__C128__)
+    // c128 shadow values so don't have to do VDC hoops in 80col mode
     uint8_t currentTextcolor = COLOR_BLACK;
     uint8_t currentBorderColor = COLOR_BLACK;
     uint8_t currentBackgroundColor = COLOR_BLACK;
+
+    // Current Page and Offset in C128 Bank 1
+    uint8_t currPage = 0;
+    uint8_t currOffset = 0;
 #endif
 
 #define MyLoc    (GameHeader.PlayerRoom)
@@ -360,8 +364,6 @@ void LoadDatabase(uint8_t *filename, uint8_t loud) {
     uint8_t filenum=1;
     uint8_t device=PEEK(CBM_CURRENT_DEVICE_NUMBER);
     uint8_t mode=0;
-    uint8_t currPage = 0;
-    uint8_t currOffset = 0;
     Action *ap;
     Room *rp;
     Item *ip;
@@ -492,8 +494,8 @@ void LoadDatabase(uint8_t *filename, uint8_t loud) {
             copyinfo.count = lstrlen + 1;
             copyinfo.buf   = mp;
             em_copyto (&copyinfo);
-            // page math: Move page forward for each set of 255 crossed
-            currPage += ((currOffset + lstrlen + 1) / 255);
+            // page math: Move page forward for each set of 256 crossed
+            currPage += ((currOffset + lstrlen + 1) / 256);
             currOffset = currOffset + lstrlen + 1; // currOffset is 8 bit, wraps around
             free(mp); // Message stored in em now, free bank 0 buffer
         }
@@ -1927,11 +1929,21 @@ Distributed under the GNU software\nlicense\n\n");
 
     LoadDatabase(filename,(Options&DEBUGGING)?1:0);  // load DAT/BDAT file
 
-    // DEBUG
-    // print("MemFree(");
-    // print_number(_heapmemavail());
-    // print(")\n");
-    // cgetc();
+//    // DEBUG - Uncomment to see memfree/pages free
+//#if defined(__C128__)
+//    print("Bank 1 PagesFree(");
+//    print_number(em_pagecount() - currPage + 1);
+//    print(")\n");
+//    print("Bank 0 MemFree(");
+//    print_number(_heapmemavail());
+//    print(")\n");
+//    cgetc();
+//#else
+//    print("MemFree(");
+//    print_number(_heapmemavail());
+//    print(")\n");
+//    cgetc();
+//#endif
 
     // Load Saved Game
     if(savedgame!=NULL) {
